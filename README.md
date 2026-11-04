@@ -160,8 +160,10 @@ human approval.
 ### Switch Trust and ROI
 
 The read-only governance client is separate from the room server. It reads the API key's
-tenant/workspace from `GET /auth/api-key/identity`, then summarizes evaluation health, guardrail
-policies, and ROI cost data. It never sends prompts, evidence, or room content to Trust.
+tenant/workspace from `GET /api/v1/auth/api-key/identity`, then summarizes evaluation health, guardrail
+policies, and ROI cost data. It never sends prompts, evidence, or room content to Trust. The
+client uses the base URL from the official Switch Trust OpenAPI document:
+`https://{host}/api/v1`.
 
 ```sh
 export INVESTIGATOR_TRUST_API_KEY='sk_...'

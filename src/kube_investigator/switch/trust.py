@@ -23,6 +23,7 @@ from kube_investigator.errors import ConfigurationError, SwitchError
 ALLOWED_TRUST_HOSTS = ("switchagents.ai",)
 _EDGE_LABELS = ("app", "api", "ingestion")
 _LOCALHOST = "localhost"
+API_PREFIX = "/api/v1"
 ROI_ANALYSIS_TYPES = (
     "tool_bloat",
     "model_optimizer",
@@ -73,15 +74,21 @@ def validate_instance(value: str | None) -> str:
 
 
 def derive_api_base(instance: str) -> str:
-    """Map a web-app instance URL to the REST API origin."""
+    """Map a web-app instance URL to the REST API base, including ``/api/v1``.
+
+    The Switch Trust OpenAPI document declares ``https://{host}/api/v1`` as
+    the server URL.  The browser app lives on ``app.switchagents.ai``; the API
+    is ``api.switchagents.ai/api/v1``.
+    """
     parsed = urlsplit(instance)
     host = parsed.hostname or ""
     if host == _LOCALHOST:
-        return instance
-    head, _, rest = host.partition(".")
-    base = rest if head in _EDGE_LABELS and rest else host
-    netloc = f"api.{base}" if parsed.port is None else f"api.{base}:{parsed.port}"
-    return urlunsplit(parsed._replace(netloc=netloc))
+        netloc = parsed.netloc
+    else:
+        head, _, rest = host.partition(".")
+        base = rest if head in _EDGE_LABELS and rest else host
+        netloc = f"api.{base}" if parsed.port is None else f"api.{base}:{parsed.port}"
+    return urlunsplit((parsed.scheme, netloc, API_PREFIX, "", ""))
 
 
 @dataclass(frozen=True)

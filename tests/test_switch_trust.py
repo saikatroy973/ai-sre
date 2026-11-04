@@ -16,7 +16,7 @@ from kube_investigator.switch.trust import (
 )
 
 INSTANCE = "https://app.switchagents.ai"
-API_BASE = "https://api.switchagents.ai"
+API_BASE = "https://api.switchagents.ai/api/v1"
 
 
 def settings(**overrides):
@@ -40,7 +40,7 @@ def response(payload, status=200):
 
 
 def summary_handler(request):
-    path = request.url.path
+    path = request.url.path.removeprefix("/api/v1")
     if path == "/auth/api-key/identity":
         return response(
             {
@@ -126,7 +126,7 @@ def test_api_base_derivation_replaces_the_edge_label():
     assert derive_api_base("https://app.switchagents.ai") == API_BASE
     assert derive_api_base("https://api.switchagents.ai") == API_BASE
     assert derive_api_base("https://switchagents.ai") == API_BASE
-    assert derive_api_base("http://localhost:4000") == "http://localhost:4000"
+    assert derive_api_base("http://localhost:4000") == "http://localhost:4000/api/v1"
 
 
 def test_settings_require_a_key_only_when_required(monkeypatch):
@@ -171,7 +171,7 @@ def test_roi_summary_reads_latest_analyses_for_one_agent():
     seen = {}
 
     def handler(request):
-        if request.url.path.startswith("/roi/analyses/latest/"):
+        if request.url.path.removeprefix("/api/v1").startswith("/roi/analyses/latest/"):
             seen["agent_id"] = request.url.params["agent_id"]
             seen["types"] = request.url.params["analysis_types"]
             return response({"model_optimizer": {"estimated_savings_usd": 3.0}})
