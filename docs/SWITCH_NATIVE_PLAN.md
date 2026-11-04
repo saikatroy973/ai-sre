@@ -139,6 +139,21 @@ Not yet verified or not implemented:
   and a reviewed approval path. `switch console setup --no-auto-mode` creates agents that require
   Console approvals instead.
 
+### Gap audit (2–11)
+
+| Gap | Status | Evidence / remaining work |
+| --- | --- | --- |
+| 2. Trust evaluations | Partial | PII and secret suites 100/100 at score `1`; LLM01 stalled twice and was canceled |
+| 3. Live traffic / OTel | Pass | 3 LangChain/OpenAI interactions with prompts, tokens, latency, and cost; full `/agent/otel/v1/traces` URL required |
+| 4. ROI | Partial | Nonzero `$0.0001339` MTD cost and 2 ROI agents; no optimization recommendation from 3 interactions |
+| 5. Guardrails | Partial | SDK outcomes `blocked=2, redacted=1, errored=2`; no successful redacted provider response because keys have no credits |
+| 6. CI gates | Pass (red by design) | Provider preflight fails closed on `429`; findings gate exits `5` on 2 Critical model-evaluation findings |
+| 7. Deployment unification | Pass | Console is the mandatory live runtime; the self-hosted protocol stack is an optional test harness |
+| 8. Collaboration bridges | Pass | Console Mattermost bridge; channel contains 10 mirrored investigation messages |
+| 9. Live Kubernetes / Scale | Partial | Live `kind-imesh` read abstained as designed; Scale Agentex/SGP has no credentials and is not deployed |
+| 10. Reliability | Partial | Leases, recovery, stale-worker guard, 2-worker and 30-job/4-worker tests; 10-room crash/restart drill not run |
+| 11. Security / autonomy | Partial | Read-only MCP tool allowlist test and live guardrails; no OS isolation, remediation, or reviewed approval path |
+
 
 ---
 

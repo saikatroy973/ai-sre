@@ -230,7 +230,8 @@ telemetry only.
 Trust now reports 5 issues: two **Critical** model-evaluation risks (model robustness and model
 security), two Medium model-evaluation risks, and one Informational missing-model-evaluation
 finding. `scripts/trust_gate.py` fails at the default `high` threshold with the two Critical
-findings. That is the intended fail-closed gate result, not a clean pass.
+findings. That is the intended fail-closed gate result, not a clean pass. The next step is to
+review the model evaluation findings or change the model profile, not to suppress the gate.
 
 
 The local Switch Trust CLI can scan the agent code without the Trust API client:
@@ -550,4 +551,4 @@ ruff format --check .
 
 Tests use fixtures, an in-memory Switch runtime, and mock HTTP transports; they do not access a
 cluster, Scale, or a live Switch server. See `docs/BUILD_PLAN.md` for the implementation sequence
-and `docs/SWITCH_NATIVE_PLAN.md` for the remaining production gates.
+and `docs/SWITCH_NATIVE_PLAN.md` for the gap audit (2–11) and remaining production gates.
