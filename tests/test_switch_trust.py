@@ -52,6 +52,16 @@ def summary_handler(request):
         )
     if path.startswith("/aispm-agents-dashboard/"):
         return response({"total_mtd_cost": 12.5, "total_cost_cap": 100.0})
+    if path.startswith("/aispm-agents/"):
+        return response({"total": 0, "rows": []})
+    if path.startswith("/aispm-mcp-servers/"):
+        return response({"total": 5, "rows": []})
+    if path.startswith("/aispm-models/"):
+        return response({"total": 2, "rows": []})
+    if path.startswith("/aispm-tools/"):
+        return response({"total": 3, "rows": []})
+    if path.startswith("/issues/"):
+        return response({"total": 1, "rows": []})
     if path.startswith("/roi/agents/"):
         return response(
             {
@@ -168,6 +178,13 @@ def test_governance_summary_uses_read_only_endpoints_and_keeps_scope():
         "workspace_id": "workspace-1",
     }
     assert result["cost"] == {"total_mtd_cost": 12.5, "total_cost_cap": 100.0}
+    assert result["inventory"] == {
+        "agents": 0,
+        "mcp_servers": 5,
+        "models": 2,
+        "tools": 3,
+        "issues": 1,
+    }
     assert result["roi_agents"][0]["agent_id"] == "agent-1"
     assert result["guardrails"]["policy_count"] == 1
     assert result["guardrails"]["policies"] == [
@@ -249,6 +266,8 @@ def test_governance_document_states_the_limits_of_the_snapshot():
     assert "# Switch Trust governance summary" in rendered
     assert "Tenant: tenant-1" in rendered
     assert "Workspace: workspace-1" in rendered
+    assert "MCP servers: 5" in rendered
+    assert "Issues: 1" in rendered
     assert "agent-1: score=0.92" in rendered
     assert "Outcomes: ok=10, alerted=1, blocked=2" in rendered
     assert "does not stop spending" in rendered

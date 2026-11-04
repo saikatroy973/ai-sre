@@ -217,6 +217,21 @@ class TrustClient:
             "trend": payload.get("trend", {}),
         }
 
+    def _inventory_counts(self, tenant: str, workspace: str) -> dict[str, int]:
+        def total(path: str) -> int:
+            payload = self._get(path)
+            value = payload.get("total")
+            return value if isinstance(value, int) else 0
+
+        prefix = f"/tenants/{quote(tenant, safe='')}/workspaces/{quote(workspace, safe='')}"
+        return {
+            "agents": total(f"/aispm-agents{prefix}"),
+            "mcp_servers": total(f"/aispm-mcp-servers{prefix}"),
+            "models": total(f"/aispm-models{prefix}"),
+            "tools": total(f"/aispm-tools{prefix}"),
+            "issues": total(f"/issues{prefix}"),
+        }
+
     def governance_summary(self, *, agent_ids: tuple[str, ...] = ()) -> dict[str, Any]:
         tenant, workspace = self.scope()
         cost = self._get(
@@ -250,6 +265,7 @@ class TrustClient:
                 "total_mtd_cost": cost.get("total_mtd_cost"),
                 "total_cost_cap": cost.get("total_cost_cap"),
             },
+            "inventory": self._inventory_counts(tenant, workspace),
             "roi_agents": activity.get("items", []),
             "roi_agent_count": activity.get("total_count"),
             "guardrails": {
@@ -309,6 +325,7 @@ def render_governance_summary(summary: dict[str, Any]) -> str:
     """Render a Trust summary as a room document that cites what was read."""
     identity = summary.get("identity") or {}
     cost = summary.get("cost") or {}
+    inventory = summary.get("inventory") or {}
     guardrails = summary.get("guardrails") or {}
     lines = [
         "# Switch Trust governance summary",
@@ -322,6 +339,13 @@ def render_governance_summary(summary: dict[str, Any]) -> str:
         f"- Month-to-date: {cost.get('total_mtd_cost')}",
         f"- Cost cap: {cost.get('total_cost_cap')}",
         f"- Advisory note: {summary.get('advisory')}",
+        "",
+        "## Inventory",
+        f"- Agents: {inventory.get('agents')}",
+        f"- MCP servers: {inventory.get('mcp_servers')}",
+        f"- Models: {inventory.get('models')}",
+        f"- Tools: {inventory.get('tools')}",
+        f"- Issues: {inventory.get('issues')}",
         "",
         "## Guardrails",
         f"- Policies: {guardrails.get('policy_count')}",

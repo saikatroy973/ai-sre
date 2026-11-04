@@ -75,13 +75,18 @@ Verified live against the provisioned Trust workspace:
 - `switch roi` returned zero agents/cost and an empty latest-analysis map.
 - `switch trust publish` created `trust-summary-20261104T144158Z` in the live `k8s-governance`
   room.
+- The pinned CodeScan action's scanner image was downloaded through the Trust API and run on a
+  clean checkout. Its static inventory uploaded 2 libraries, 2 organizations, 0 agents,
+  5 MCP servers, and 0 secrets. A follow-up `switch trust status` read the 5 MCP servers.
+  The MCP AI scanner stage was skipped after Gemini 503/free-tier quota errors.
 
 Not yet verified or not implemented:
 
-- The live workspace has no discovered agents or ROI interactions, so no nonzero ROI
-  recommendation has been demonstrated. Trust Live traffic, sending OTel spans to Trust, and a
-  promotion gate that blocks on findings are not implemented. The CodeScan workflow publishes
-  findings; it does not fail a release by itself.
+- The live workspace has 5 discovered MCP servers but no agents or ROI interactions, so no
+  nonzero ROI recommendation has been demonstrated, and the MCP AI scanner stage did not
+  complete. Trust Live traffic, sending OTel spans to Trust, and a promotion gate that blocks on
+  findings are not implemented. The CodeScan workflow publishes findings; it does not fail a
+  release by itself.
 - A bridged Console incident room, semantic memory indexing, live telemetry/change sources, Scale
   Agentex hosting, and remediation execution are later phases. The local SQLite queue is a
   single-worker queue, not a distributed one.
@@ -726,11 +731,12 @@ Every episode must show a Switch surface and a working artifact. No episode is â
 
 - [x] Build the read-only Kubernetes MCP tool server (not a write gateway).
 - [x] Build evidence store and verifier.
-- [x] Add Trust CodeScan to CI; the repository scan still needs secrets and a run.
+- [x] Add Trust CodeScan to CI and run the pinned scanner image against a clean checkout.
+- [ ] Run the GitHub CodeScan Action on a GitHub-hosted runner.
 - [x] Create the optional HTTP evaluation harness (`trust_harness.py`) with guardrails.
 - [x] Add a `switch trust scan` wrapper around the Switch Trust CLI.
 - [ ] Add Trust evaluations: OWASP, PII, secrets, grounding, citations.
-- [ ] Add the guardrail policy.
+- [ ] Create or review a guardrail policy in the live workspace (one policy exists).
 - [x] Add optional OpenTelemetry spans for collect, reason, and verify (OTLP exporter optional).
 - [ ] Send the same spans to Switch Trust Live traffic; that remains a Trust configuration gap.
 

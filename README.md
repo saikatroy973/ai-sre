@@ -182,9 +182,16 @@ external to Switch ROI.
 
 Verified live against the provisioned Trust workspace: the key identity resolved to one
 tenant/workspace, the guardrail policy count was 1, month-to-date cost was 0, and the workspace
-had no ROI agents yet. `switch trust publish` created `trust-summary-20261104T144158Z` in the
-live `k8s-governance` room. This is a real read of the tenant, including an empty inventory and
-zero cost; it is not a demonstration of nonzero ROI analysis.
+had no ROI agents at the first read. `switch trust publish` created
+`trust-summary-20261104T144158Z` in the live `k8s-governance` room.
+
+The pinned CodeScan action's scanner image was downloaded through the Trust API and run against a
+clean checkout. It completed its static inventory upload: 2 libraries, 2 organizations, 0 agents,
+5 MCP servers, and 0 secrets. A follow-up `switch trust status` read those 5 MCP servers from the
+live workspace. The MCP AI scanner stage was skipped because the Gemini provider returned
+`503 UNAVAILABLE` and free-tier quota errors, so this is a completed static inventory scan, not a
+completed AI-assisted scan. No ROI interactions existed, so the ROI result remains zero rather
+than a nonzero recommendation.
 
 The local Switch Trust CLI can scan the agent code without the Trust API client:
 
@@ -416,11 +423,12 @@ Verified live against the optional self-hosted Switch 0.31.0 protocol stack:
 
 Not yet implemented or not yet verified:
 
-- The live Trust workspace currently has no discovered agents and no ROI interactions, so the
-  live result is an empty inventory and zero month-to-date cost, not a nonzero ROI analysis.
-  Trust Live traffic, SDK/OTel instrumentation into Trust, and a CI gate that blocks promotion
-  on findings are not implemented; the CodeScan workflow only records findings. Local OTel spans
-  require an OTLP exporter and are not sent to Trust automatically.
+- The live Trust workspace has 5 discovered MCP servers but no agents or ROI interactions, so
+  the live result is a static inventory and zero month-to-date cost, not a nonzero ROI analysis.
+  The MCP AI scanner stage did not complete. Trust Live traffic, SDK/OTel instrumentation into
+  Trust, and a CI gate that blocks promotion on findings are not implemented; the CodeScan
+  workflow only records findings. Local OTel spans require an OTLP exporter and are not sent to
+  Trust automatically.
 - A sequential incident queue is implemented for the local CLI, but it is not a distributed
   multi-worker queue with lease recovery.
 - There is no semantic memory index, live telemetry/change source, Scale Agentex hosting, or
