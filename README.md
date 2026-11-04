@@ -212,26 +212,32 @@ also stalled and was canceled.
 Trust Live traffic now works through OpenTelemetry for the LangChain/OpenAI path. The Python OTLP
 exporter needs the full signal URL
 (`https://ingestion.switchagents.ai/agent/otel/v1/traces`); passing only the documented base URL
-posts to `/agent/otel` and returns `403 Forbidden`. Three instrumented LangChain calls produced
-Trust agent `agn_1937c5178825ca80cb70982085181f68` with three interactions, prompts, token counts,
-latency, and `$0.0001339` month-to-date cost. That is a small but nonzero ROI result, not a
-recommendation.
+posts to `/agent/otel` and returns `403 Forbidden`. Six instrumented LangChain calls produced
+Trust agent `agn_1937c5178825ca80cb70982085181f68` with six interactions (three on
+`gpt-6-luna` and three on `claude-haiku-5-5`), prompts, token counts, and latency. Trust still
+reports `$0.0001339` MTD cost; the new model was not priced when checked. That is a small but
+nonzero ROI result, not a recommendation.
 
 The live guardrail policy **Kubernetes Investigation Enforcement**
 (`705263a3-93b3-4e31-aa51-a50cc736800d`) blocks jailbreaks and secrets and redacts email
 addresses on user and assistant traffic. The SDK guardrail path (`switch_trust.wrap` with the
 policy ID and an agent ID) returns `GUARDRAIL_BLOCKED` for a jailbreak prompt with the policy ID,
-policy name, and a High finding. Live outcomes were `ok=4, blocked=2, redacted=1, errored=2,
-total=9`. The redaction outcome came from an email prompt; the subsequent provider call failed
+policy name, and a High finding. Live outcomes were `ok=7, blocked=2, redacted=1, errored=2,
+total=12`. The redaction outcome came from an email prompt; the subsequent provider call failed
 because the available provider keys have no credits, so a successful redacted model response was
 not demonstrated. Guardrails are enforced by the SDK gateway, not by OTel ingestion; OTel is
 telemetry only.
 
-Trust now reports 5 issues: two **Critical** model-evaluation risks (model robustness and model
-security), two Medium model-evaluation risks, and one Informational missing-model-evaluation
-finding. `scripts/trust_gate.py` fails at the default `high` threshold with the two Critical
-findings. That is the intended fail-closed gate result, not a clean pass. The next step is to
-review the model evaluation findings or change the model profile, not to suppress the gate.
+Trust initially reported 5 issues, including two **Critical** model-evaluation risks for
+`gpt-6-luna` (model robustness and model security). The review in
+[`docs/TRUST_MODEL_REVIEW.md`](docs/TRUST_MODEL_REVIEW.md) found robustness `0.0` and security
+`0.113`, and the findings gate correctly failed at the default `high` threshold. The live OTel
+profile was changed to `claude-haiku-5-5`; `gpt-6-luna` then left Trust's 3-model inventory and
+the current issues endpoint returns only an Informational missing-model-evaluation finding. The
+gate therefore passes at `high` again, but this is **not** a remediation claim: the historical
+Critical finding remains documented, the gate was not suppressed, and `gpt-6-luna` must not be
+reintroduced without a fresh Trust evaluation. `claude-haiku-5-5` has no documented Trust
+evaluation yet, so it is provisional.
 
 
 The local Switch Trust CLI can scan the agent code without the Trust API client:
@@ -304,10 +310,11 @@ preflight or scan fails, so a provider outage cannot hide existing findings. Wit
 secrets the workflow records an explicit skip; it never reports a skipped scan as a pass. The
 CodeScan action and the local CLI scan are separate artifacts.
 
-The live gate currently **fails** with two Critical model-evaluation findings; that is the gate
-doing its job, not a clean scan. The supplied OpenAI key also returns `429
-credit_balance_exhausted`, so the provider preflight correctly blocks the AI scan rather than
-reporting a static-only run as complete.
+The live gate currently passes at `high` with 0 failing findings, but only because the reviewed
+`gpt-6-luna` model left Trust's 3-model inventory; the historical Critical finding is retained in
+`docs/TRUST_MODEL_REVIEW.md`, and no allowlist or gate suppression was added. The supplied OpenAI
+key also returns `429 credit_balance_exhausted`, so the provider preflight correctly blocks the
+AI scan rather than reporting a static-only run as complete.
 
 
 ### Switch environment
@@ -531,9 +538,11 @@ Not yet implemented or not yet verified:
   successful redacted model response was demonstrated because the available provider keys have no
   credits. OTel traffic is telemetry only; it does not enforce guardrails. The LLM01 fixed-prompt
   evaluation stalled twice and was canceled both times.
-- Trust reports two Critical model-evaluation findings for the live model, so the findings gate
-  fails. No owner/expiry exception workflow is implemented; the findings are not suppressed. The
-  MCP AI scanner stage also did not complete, and the supplied OpenAI key is out of credits.
+- The reviewed `gpt-6-luna` Critical model-evaluation findings left Trust's current 3-model
+  inventory after the live profile changed to `claude-haiku-5-5`; this is an inventory-retention
+  effect, not remediation. `claude-haiku-5-5` has no Trust evaluation yet, and there is no
+  owner/expiry exception workflow. The MCP AI scanner stage also did not complete, and the
+  supplied OpenAI key is out of credits.
 - The incident queue is multi-worker on one host with worker IDs, leases, stale-worker guards, and
   expired-lease recovery, but it is not a distributed cross-host queue. The 10-concurrent-incident
   and crash/restart production gate has not been run.
@@ -550,5 +559,8 @@ ruff format --check .
 ```
 
 Tests use fixtures, an in-memory Switch runtime, and mock HTTP transports; they do not access a
-cluster, Scale, or a live Switch server. See `docs/BUILD_PLAN.md` for the implementation sequence
-and `docs/SWITCH_NATIVE_PLAN.md` for the gap audit (2–11) and remaining production gates.
+cluster, Scale, or a live Switch server. The GitHub Actions `Tests` workflow
+[run 41878611603](https://github.com/saikatroy973/kube-investigator/actions/runs/41878611603)
+passed on Python 3.11, 3.13, and 3.14; the local suite is 234 tests. See `docs/BUILD_PLAN.md` for
+the implementation sequence and `docs/SWITCH_NATIVE_PLAN.md` for the gap audit (2–11) and
+remaining production gates.

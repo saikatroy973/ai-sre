@@ -49,14 +49,15 @@ Implemented and verified live through **Switch Console**, the mandatory live age
   harness (`eval_harness.py`) with input/output guardrails and the read-only investigation tool.
 - A live Trust agent endpoint and three evaluation assignments. The PII and secret runs finished
   with 100/100 passing results each; the LLM01 fixed-prompt run stalled twice and was canceled.
-- Live Trust traffic for the LangChain/OpenAI path over OTel: 3 interactions, 3 prompts, token
+- Live Trust traffic for the LangChain/OpenAI path over OTel: 6 interactions, 6 prompts, token
   and latency data, and `$0.0001339` month-to-date cost on Trust agent `agn_1937c5178825ca80cb70982085181f68`.
 - A live guardrail policy, **Kubernetes Investigation Enforcement**, that blocks jailbreaks and
   secrets and redacts email addresses. The SDK path returns `GUARDRAIL_BLOCKED` for a jailbreak
   prompt, and outcomes show `blocked=2, redacted=1`; a successful redacted model response is not
   demonstrated because the provider keys have no credits.
-- A live findings gate that fails closed on 5 issues, including two Critical model-evaluation
-  findings.
+- A live findings gate that initially failed closed on 5 issues, including two Critical
+  model-evaluation findings. The model review changed the live OTel profile; the historical
+  finding is retained in `docs/TRUST_MODEL_REVIEW.md` and was not suppressed.
 - Switch Trust CLI `1.7.2` scanned the OpenAI Agents SDK harness (`0 findings`) and wrote SARIF.
   The static layers completed; Gemini AI reasoning returned 503 high-demand and 429 free-tier
   quota errors, so the AI stage did not complete. This is a local file scan, not a tenant CodeScan
@@ -112,13 +113,16 @@ Verified live against the provisioned Trust workspace:
   `$0.0001339` month-to-date cost.
 - Guardrail policy `705263a3-93b3-4e31-aa51-a50cc736800d` was created with block actions for
   jailbreak and secrets and redact actions for email. The SDK path returns `GUARDRAIL_BLOCKED`
-  for a jailbreak prompt with the policy ID and a High finding. Live outcomes are `ok=4,
-  blocked=2, redacted=1, errored=2, total=9`; the redacted request's provider call failed because
-  the available provider keys have no credits.
-- The findings gate correctly **fails** the live workspace: 5 issues, including two Critical
-  model-evaluation findings (model robustness and model security). The provider preflight fails
-  the supplied OpenAI key with `429 credit_balance_exhausted`, so an incomplete AI scan cannot be
-  reported as a clean pass.
+  for a jailbreak prompt with the policy ID and a High finding. Live outcomes are `ok=7,
+  blocked=2, redacted=1, errored=2, total=12`; the redacted request's provider call failed
+  because the available provider keys have no credits.
+- The findings gate initially **failed** the live workspace: 5 issues, including two Critical
+  model-evaluation findings. The review in `docs/TRUST_MODEL_REVIEW.md` found `gpt-6-luna`
+  robustness `0.0` and security `0.113`, changed the live OTel profile to `claude-haiku-5-5`, and
+  retained the finding. `gpt-6-luna` then left Trust's 3-model inventory; the gate now passes at
+  `high` with 0 failing, but that is an inventory-retention effect, not remediation. The gate was
+  not edited or suppressed. The provider preflight still fails the supplied OpenAI key with `429
+  credit_balance_exhausted`, so an incomplete AI scan cannot be reported as a clean pass.
 
 Not yet verified or not implemented:
 
@@ -128,8 +132,10 @@ Not yet verified or not implemented:
 - Trust OTel is telemetry only and does not enforce guardrails. The SDK gateway recorded block and
   redact outcomes, but the provider keys have no credits, so end-to-end redacted content and a
   successful model response through the gateway remain unverified.
-- The two Critical model-evaluation findings are unresolved; there is no owner/expiry exception
-  workflow, and they are not suppressed.
+- `gpt-6-luna` is quarantined; it must not be reintroduced without a fresh evaluation. Its
+  historical Critical findings are not in the current inventory because the model was displaced
+  from the 3-model view, not because they were fixed. `claude-haiku-5-5` has no documented Trust
+  evaluation yet, and there is no owner/expiry exception workflow.
 - A human-only room walkthrough, semantic memory indexing, live telemetry/change sources, Scale
   Agentex hosting, and remediation execution are later phases. The local SQLite queue is
   multi-worker on one host, not a distributed cross-host queue.
@@ -143,11 +149,11 @@ Not yet verified or not implemented:
 
 | Gap | Status | Evidence / remaining work |
 | --- | --- | --- |
-| 2. Trust evaluations | Partial | PII and secret suites 100/100 at score `1`; LLM01 stalled twice and was canceled |
-| 3. Live traffic / OTel | Pass | 3 LangChain/OpenAI interactions with prompts, tokens, latency, and cost; full `/agent/otel/v1/traces` URL required |
-| 4. ROI | Partial | Nonzero `$0.0001339` MTD cost and 2 ROI agents; no optimization recommendation from 3 interactions |
+| 2. Trust evaluations | Partial | PII and secret suites 100/100 at score `1`; LLM01 stalled twice and was canceled; `claude-haiku-5-5` lacks an evaluation |
+| 3. Live traffic / OTel | Pass | 4 LangChain/OpenAI interactions with prompts, tokens, latency, and cost; full `/agent/otel/v1/traces` URL required |
+| 4. ROI | Partial | Nonzero `$0.0001339` MTD cost and 2 ROI agents; no optimization recommendation from 6 interactions |
 | 5. Guardrails | Partial | SDK outcomes `blocked=2, redacted=1, errored=2`; no successful redacted provider response because keys have no credits |
-| 6. CI gates | Pass (red by design) | Provider preflight fails closed on `429`; findings gate exits `5` on 2 Critical model-evaluation findings |
+| 6. CI gates | Pass (current) | Provider preflight fails closed on `429`; gate initially failed on 2 Critical findings, which were reviewed and retained after the model profile changed |
 | 7. Deployment unification | Pass | Console is the mandatory live runtime; the self-hosted protocol stack is an optional test harness |
 | 8. Collaboration bridges | Pass | Console Mattermost bridge; channel contains 10 mirrored investigation messages |
 | 9. Live Kubernetes / Scale | Partial | Live `kind-imesh` read abstained as designed; Scale Agentex/SGP has no credentials and is not deployed |
@@ -804,7 +810,8 @@ Every episode must show a Switch surface and a working artifact. No episode is â
 - [x] Add optional OpenTelemetry spans for collect, reason, and verify (OTLP exporter optional).
 - [x] Send LangChain/OpenAI traffic to Switch Trust OTel using the full
   `/agent/otel/v1/traces` signal URL; live sessions, tokens, and cost are visible.
-- [x] Add the findings gate and verify it fails on live Critical model-evaluation findings.
+- [x] Add the findings gate, verify it fails on live Critical model-evaluation findings, and
+  document the model review and profile change in `docs/TRUST_MODEL_REVIEW.md`.
 
 ### Phase C: memory and specialists
 
@@ -895,10 +902,11 @@ Every episode must show a Switch surface and a working artifact. No episode is â
 | Every incident has a room from the template | Pass | Console incident creation and package attachment |
 | Every handoff is a room message | Pass | Console and protocol-harness transcripts |
 | Console incident room bridged to chat | Pass | Mattermost bridge `0907b3e3-â€¦`; channel has 10 mirrored messages |
-| Trust evaluations | Partial | PII and secret runs 100/100 at score `1`; LLM01 run stalled twice and was canceled |
+| Trust evaluations | Partial | PII and secret runs 100/100 at score `1`; LLM01 stalled twice and was canceled; `claude-haiku-5-5` missing evaluation |
 | Trust guardrail enforcement | Partial | SDK gateway: `blocked=2`, `redacted=1`, `errored=2`; no successful redacted response (no credits) |
-| Trust Live traffic | Pass | OTel LangChain/OpenAI: 3 interactions, prompts, tokens, latency, `$0.0001339` cost |
-| Trust findings gate | **Fail** | 5 issues, 2 Critical model-evaluation findings; gate exits `5` at `high` |
+| Trust Live traffic | Pass | OTel LangChain/OpenAI: 6 interactions, prompts, tokens, latency, `$0.0001339` cost |
+| Trust findings gate | Pass (current) | Historical 2 Critical `gpt-6-luna` findings reviewed; model left the 3-model inventory after the profile switch; gate passes on 1 Informational |
+| Model-evaluation review | Pass | `docs/TRUST_MODEL_REVIEW.md`; `claude-haiku-5-5` remains provisional (missing evaluation) |
 | Incomplete AI scan cannot pass | Pass | Provider preflight fails closed on `429 credit_balance_exhausted` |
 | Nonzero ROI analysis | Partial | Nonzero cost telemetry; no ROI recommendation or optimization |
 | No write/exec/secret tools | Pass (tool surface) | MCP tool allowlist; no OS sandbox |
@@ -940,5 +948,6 @@ Every episode must show a Switch surface and a working artifact. No episode is â
 - [Switch Trust guardrails](https://docs.switchagents.ai/switch-trust/guardrails/policies.md)
 - [Switch Trust OpenTelemetry](https://docs.switchagents.ai/switch-trust/admin/data-sources/opentelemetry.md)
 - [Switch incident response use case](https://docs.switchagents.ai/switch-rooms/use-cases/incident-response.md)
+- [Trust model-evaluation review](TRUST_MODEL_REVIEW.md)
 
 **Checked against public docs:** Switch Console 0.31.0 / switch-core 0.21.0 (August 25, 2026).
