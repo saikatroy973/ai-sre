@@ -206,8 +206,8 @@ temporary Cloudflare tunnel and registered in Trust as a `generic_http` agent en
 agent `agn_0b9ae0a09ef8cf6df36a96d572ae0c9a`. Three agent evaluations were assigned: LLM01 prompt
 injection, LLM02 PII leakage, and LLM02 secret leakage. The PII and secret runs finished with 100
 results each and every result scored `1`; Trust reported an overall agent score of `1`. The LLM01
-fixed-prompt run stalled near completion, was canceled, and was not counted as a pass; a rerun was
-started.
+fixed-prompt run stalled near completion, was canceled, and was not counted as a pass; a rerun
+also stalled and was canceled.
 
 Trust Live traffic now works through OpenTelemetry for the LangChain/OpenAI path. The Python OTLP
 exporter needs the full signal URL
@@ -509,7 +509,8 @@ Verified live through Switch Console:
   healthy. This is the intended abstention behavior, not a silent failure.
 - A Console Mattermost bridge (`0907b3e3-371b-4bf6-ae11-08170b2b7975`) was created and a new
   incident room (`e6f091c0-66ad-4ba9-a2b4-8cfa0ebe4f1f`) was bridged to it. Console reports the
-  room's external channel URL and six agents plus the human member.
+  room's external channel URL and six agents plus the human member; the Mattermost channel
+  `incident-5fd81254-shop-checkout` contained 10 mirrored investigation messages when checked.
 - `switch trust publish --console` attached the Trust snapshot document to the Console-managed
   `k8s-governance` room.
 
@@ -528,7 +529,7 @@ Not yet implemented or not yet verified:
 - Trust Live traffic works via OTel, and the SDK gateway records live guardrail outcomes, but no
   successful redacted model response was demonstrated because the available provider keys have no
   credits. OTel traffic is telemetry only; it does not enforce guardrails. The LLM01 fixed-prompt
-  evaluation was canceled after stalling and a rerun was started.
+  evaluation stalled twice and was canceled both times.
 - Trust reports two Critical model-evaluation findings for the live model, so the findings gate
   fails. No owner/expiry exception workflow is implemented; the findings are not suppressed. The
   MCP AI scanner stage also did not complete, and the supplied OpenAI key is out of credits.

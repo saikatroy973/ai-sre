@@ -1,5 +1,8 @@
+import asyncio
+
 from kube_investigator.mcp_server import (
     get_investigation,
+    mcp,
     run_investigation,
     search_memory,
     source_status,
@@ -87,6 +90,21 @@ def test_mcp_source_status_abstains_without_inventing_evidence(monkeypatch, tmp_
     kubernetes = source_status("kubernetes")
     assert kubernetes["configured"] is False
     assert kubernetes["backend"] == "fixture"
+
+
+def test_mcp_exposes_only_read_only_investigation_tools():
+    tools = asyncio.run(mcp.list_tools())
+    names = {tool.name for tool in tools}
+    assert names == {
+        "kube_investigator_health",
+        "kube_investigator_run",
+        "kube_investigator_get",
+        "kube_investigator_verify",
+        "kube_investigator_memory",
+        "kube_investigator_source_status",
+    }
+    forbidden = ("apply", "delete", "exec", "patch", "scale", "secret", "write")
+    assert not [name for name in names if any(word in name for word in forbidden)]
 
 
 def test_mcp_rejects_invalid_ids_and_limits(monkeypatch, tmp_path):

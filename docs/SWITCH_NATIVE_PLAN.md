@@ -48,7 +48,7 @@ Implemented and verified live through **Switch Console**, the mandatory live age
 - A local `switch trust scan` wrapper around the Switch Trust CLI, plus a deterministic HTTP eval
   harness (`eval_harness.py`) with input/output guardrails and the read-only investigation tool.
 - A live Trust agent endpoint and three evaluation assignments. The PII and secret runs finished
-  with 100/100 passing results each; the LLM01 fixed-prompt run stalled and was canceled.
+  with 100/100 passing results each; the LLM01 fixed-prompt run stalled twice and was canceled.
 - Live Trust traffic for the LangChain/OpenAI path over OTel: 3 interactions, 3 prompts, token
   and latency data, and `$0.0001339` month-to-date cost on Trust agent `agn_1937c5178825ca80cb70982085181f68`.
 - A live guardrail policy, **Kubernetes Investigation Enforcement**, that blocks jailbreaks and
@@ -72,7 +72,7 @@ Implemented and verified live through **Switch Console**, the mandatory live age
   live Console runtime.
 
 Offline validation: `ruff check .`, `ruff format --check .`, and the full pytest suite pass
-(233 tests). The Switch protocol and Console API tests use an in-memory fake and
+(234 tests). The Switch protocol and Console API tests use an in-memory fake and
 `httpx.MockTransport`; the repository's test configuration forbids real sockets.
 
 Verified live for the optional self-hosted collaboration profile:
@@ -80,8 +80,9 @@ Verified live for the optional self-hosted collaboration profile:
 - `switch up --collab` started Mattermost on `:8065`. The setup container created the admin,
   team, and user, and registered the default Mattermost bridge.
 - A Console Mattermost bridge (`0907b3e3-371b-4bf6-ae11-08170b2b7975`) was created and Console
-  incident room `e6f091c0-66ad-4ba9-a2b4-8cfa0ebe4f1f` was bridged to it, giving the room an
-  external channel URL. This is a live Console-room bridge, not only the optional stack.
+  incident room `e6f091c0-66ad-4ba9-a2b4-8cfa0ebe4f1f` was bridged to it. The Mattermost channel
+  `incident-5fd81254-shop-checkout` contained 10 mirrored investigation messages. This is a live
+  Console-room bridge, not only the optional stack.
 
 Verified live against the provisioned Trust workspace:
 
@@ -102,7 +103,7 @@ Verified live against the provisioned Trust workspace:
   as Trust agent `agn_0b9ae0a09ef8cf6df36a96d572ae0c9a` with a `generic_http` endpoint. LLM01
   prompt injection, LLM02 PII leakage, and LLM02 secret leakage assignments were created. The PII
   and secret runs finished with 100 results each, all score `1`, and the agent score is `1`. The
-  LLM01 fixed-prompt run stalled near completion and was canceled; a rerun was started.
+  LLM01 fixed-prompt run stalled near completion twice and was canceled both times.
 - Trust Live traffic works through OpenTelemetry for the LangChain/OpenAI path. The Python
   exporter must receive the full signal URL
   (`https://ingestion.switchagents.ai/agent/otel/v1/traces`); the base URL posts to
@@ -780,7 +781,7 @@ Every episode must show a Switch surface and a working artifact. No episode is â
   register it as a Trust `generic_http` agent endpoint.
 - [x] Add a `switch trust scan` wrapper around the Switch Trust CLI.
 - [x] Create Trust evaluations for LLM01 prompt injection, PII leakage, and secret leakage. The
-  PII and secret runs completed 100/100 at score `1`; the LLM01 run stalled and was canceled.
+  PII and secret runs completed 100/100 at score `1`; the LLM01 run stalled twice and was canceled.
 - [ ] Add grounding/citation metrics and the remaining OWASP suites.
 - [x] Create the live **Kubernetes Investigation Enforcement** guardrail policy.
 - [x] Exercise SDK gateway block/redact outcomes: `blocked=2`, `redacted=1` on live traffic.
@@ -878,8 +879,8 @@ Every episode must show a Switch surface and a working artifact. No episode is â
 | Healthy/ambiguous abstention | Pass | Console healthy run; live `kind-imesh` backend read abstained |
 | Every incident has a room from the template | Pass | Console incident creation and package attachment |
 | Every handoff is a room message | Pass | Console and protocol-harness transcripts |
-| Console incident room bridged to chat | Pass | Mattermost bridge `0907b3e3-â€¦`; incident room `e6f091c0-â€¦` |
-| Trust evaluations | Partial | PII and secret runs 100/100 at score `1`; LLM01 run stalled and was canceled |
+| Console incident room bridged to chat | Pass | Mattermost bridge `0907b3e3-â€¦`; channel has 10 mirrored messages |
+| Trust evaluations | Partial | PII and secret runs 100/100 at score `1`; LLM01 run stalled twice and was canceled |
 | Trust guardrail enforcement | Partial | SDK gateway: `blocked=2`, `redacted=1`, `errored=2`; no successful redacted response (no credits) |
 | Trust Live traffic | Pass | OTel LangChain/OpenAI: 3 interactions, prompts, tokens, latency, `$0.0001339` cost |
 | Trust findings gate | **Fail** | 5 issues, 2 Critical model-evaluation findings; gate exits `5` at `high` |
