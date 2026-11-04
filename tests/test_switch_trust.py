@@ -241,6 +241,53 @@ def test_governance_document_states_the_limits_of_the_snapshot():
     assert "does not claim that a gate passed" in rendered
 
 
+def test_trust_scan_wraps_the_switch_trust_cli(monkeypatch):
+    calls = []
+
+    class Result:
+        returncode = 0
+
+    def fake_run(command, check):
+        calls.append(command)
+        return Result()
+
+    monkeypatch.setattr("kube_investigator.cli.shutil.which", lambda name: "/opt/bin/switch-trust")
+    monkeypatch.setattr("kube_investigator.cli.subprocess.run", fake_run)
+    assert (
+        main(
+            [
+                "switch",
+                "trust",
+                "scan",
+                "--path",
+                "src",
+                "--format",
+                "sarif",
+                "--output",
+                "findings.sarif",
+            ]
+        )
+        == 0
+    )
+    assert calls == [
+        [
+            "/opt/bin/switch-trust",
+            "scan",
+            "src",
+            "--format",
+            "sarif",
+            "--output",
+            "findings.sarif",
+        ]
+    ]
+
+
+def test_trust_scan_fails_closed_without_the_cli(monkeypatch, capsys):
+    monkeypatch.setattr("kube_investigator.cli.shutil.which", lambda name: None)
+    assert main(["switch", "trust", "scan", "--path", "src"]) == 1
+    assert "Switch Trust CLI is not installed" in capsys.readouterr().err
+
+
 def test_trust_status_fails_closed_without_configuration(monkeypatch, capsys):
     monkeypatch.delenv("INVESTIGATOR_TRUST_API_KEY", raising=False)
     assert main(["switch", "trust", "status", "--json"]) == 1

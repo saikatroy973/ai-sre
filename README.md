@@ -178,9 +178,36 @@ message. The summary is evidence of what Trust returned at that moment, not proo
 passed. ROI caps are advisory and do not stop spending; infrastructure cost attribution remains
 external to Switch ROI.
 
-CI includes `.github/workflows/switch-trust.yml`, which runs the pinned Switch Trust CodeScan
-action when `SWITCH_TRUST_TOKEN` and `SWITCH_TRUST_LLM_API_KEY` are configured. Without those
-secrets the workflow records an explicit skip; it never reports a skipped scan as a pass.
+The local Switch Trust CLI can scan the agent code without the Trust API client:
+
+```sh
+python -m pip install switch-trust-cli
+kube-investigator switch trust scan --path src/kube_investigator/trust_harness.py
+```
+
+`switch trust scan` runs `switch-trust scan` as a subprocess and passes through its exit code.
+The AI reasoning/triage stages need a configured provider key; without one, the CLI still emits
+the static findings and says the model stages were skipped. The scan is local; it does not upload
+room content or evidence.
+
+A local scan of this repository with Switch Trust CLI `1.7.2` scanned one supported framework
+file (`trust_harness.py`), reported **0 findings**, and wrote SARIF. The AI reasoning and triage
+stages were skipped because no LLM provider key was configured, so this is a static scan of that
+scannable file, not a tenant CodeScan of every Python module.
+
+For Trust runtime evaluations, `src/kube_investigator/trust_harness.py` exposes a generic
+`POST /run` endpoint with input/output guardrails and the read-only investigation tool:
+
+```sh
+python -m pip install -e '.[trust-eval]'
+uvicorn kube_investigator.trust_harness:app --host 127.0.0.1 --port 8099
+# Configure this URL as an eval model in Switch Trust CLI.
+```
+
+CI also includes `.github/workflows/switch-trust.yml`, which runs the pinned Switch Trust
+CodeScan action when `SWITCH_TRUST_TOKEN` and `SWITCH_TRUST_LLM_API_KEY` are configured. Without
+those secrets the workflow records an explicit skip; it never reports a skipped scan as a pass.
+The CodeScan action and the local CLI scan are separate artifacts.
 
 ### Switch environment
 

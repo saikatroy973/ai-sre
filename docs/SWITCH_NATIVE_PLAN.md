@@ -45,6 +45,10 @@ Implemented and verified live through **Switch Console**, the mandatory live age
   cost data, and records a snapshot in `k8s-governance`. Errors are sanitized and the API key is
   never printed.
 - A pinned Switch Trust CodeScan workflow; it skips explicitly when its secrets are absent.
+- A local `switch trust scan` wrapper around the Switch Trust CLI, plus an optional HTTP eval
+  harness with input/output guardrails and the read-only investigation tool.
+- Switch Trust CLI `1.7.2` scanned the harness (`0 findings`, static-only because no LLM provider
+  key was configured) and wrote SARIF. This is a local file scan, not a tenant CodeScan or eval.
 - The incident kit is a Switch package with evidence-standard, report-template, and memory-policy
   library documents. `switch console incident` attaches it and links the new room to
   `k8s-memory`, `k8s-change`, and `k8s-governance`.
@@ -714,7 +718,8 @@ Every episode must show a Switch surface and a working artifact. No episode is â
 - [x] Build the read-only Kubernetes MCP tool server (not a write gateway).
 - [x] Build evidence store and verifier.
 - [x] Add Trust CodeScan to CI; the repository scan still needs secrets and a run.
-- [ ] Create the HTTP evaluation harness.
+- [x] Create the optional HTTP evaluation harness (`trust_harness.py`) with guardrails.
+- [x] Add a `switch trust scan` wrapper around the Switch Trust CLI.
 - [ ] Add Trust evaluations: OWASP, PII, secrets, grounding, citations.
 - [ ] Add the guardrail policy.
 - [x] Add optional OpenTelemetry spans for collect, reason, and verify (OTLP exporter optional).

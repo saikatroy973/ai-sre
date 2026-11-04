@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import secrets
+import shutil
 import subprocess
 import sys
 from dataclasses import replace
@@ -210,6 +211,13 @@ def parser() -> argparse.ArgumentParser:
     trust_publish.add_argument("--agent-id", action="append", default=[])
     trust_publish.add_argument("--state-dir", type=Path)
     trust_publish.add_argument("--json", action="store_true")
+    trust_scan = trust_commands.add_parser(
+        "scan", help="Run the Switch Trust CLI scan on agent code"
+    )
+    trust_scan.add_argument("--path", default=".")
+    trust_scan.add_argument("--format", choices=("json", "sarif"), default="json")
+    trust_scan.add_argument("--output")
+    trust_scan.add_argument("--log")
     roi = switch_commands.add_parser("roi", help="Read Switch ROI cost summaries")
     roi.add_argument("--agent-id")
     roi.add_argument("--json", action="store_true")
@@ -844,7 +852,25 @@ def _console_incident(client: ConsoleClient, args: argparse.Namespace) -> int:
     return 0
 
 
+def _trust_scan(args: argparse.Namespace) -> int:
+    binary = os.getenv("INVESTIGATOR_TRUST_CLI_BIN") or "switch-trust"
+    resolved = shutil.which(binary)
+    if resolved is None:
+        raise ConfigurationError(
+            "Switch Trust CLI is not installed; run `python -m pip install switch-trust-cli` "
+            "or set INVESTIGATOR_TRUST_CLI_BIN"
+        )
+    command = [resolved, "scan", str(args.path), "--format", args.format]
+    if args.output:
+        command.extend(["--output", args.output])
+    if args.log:
+        command.extend(["--log", args.log])
+    return subprocess.run(command, check=False).returncode
+
+
 def _switch_trust(args: argparse.Namespace) -> int:
+    if args.trust_command == "scan":
+        return _trust_scan(args)
     trust_settings = TrustSettings.from_env(required=True)
     client = TrustClient(trust_settings)
     try:
