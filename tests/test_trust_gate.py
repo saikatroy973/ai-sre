@@ -11,6 +11,32 @@ def load_script(name):
     return module
 
 
+def test_trust_gate_parses_tabular_issue_rows():
+    gate = load_script("trust_gate")
+    payload = {
+        "header": ["rule_id", "severity", "issue_id", "rule_name"],
+        "rows": [
+            ["r-1", "CRITICAL", "i-1", "Model security risk"],
+            ["r-2", "MEDIUM", "i-2", "Model misuse risk"],
+        ],
+        "total": 2,
+    }
+    rows = gate.issue_rows(payload)
+    assert rows[0]["severity"] == "CRITICAL"
+    assert gate.failing_findings(rows, "high") == [rows[0]]
+    assert gate.failing_findings(rows, "medium") == rows
+
+
+def test_trust_gate_rejects_unknown_row_shape():
+    gate = load_script("trust_gate")
+    try:
+        gate.issue_rows({"rows": [["unparseable"]]})
+    except SystemExit as exc:
+        assert "unknown shape" in str(exc)
+    else:
+        raise AssertionError("unknown issue rows must fail closed")
+
+
 def test_trust_gate_fails_high_and_unknown_severity():
     gate = load_script("trust_gate")
     rows = [
@@ -21,6 +47,8 @@ def test_trust_gate_fails_high_and_unknown_severity():
     assert gate.failing_findings(rows, "high") == rows[1:]
     assert gate.failing_findings(rows, "critical") == rows[2:]
     assert gate.finding_severity({"ai_spm_severity": "Critical"}) == "critical"
+    assert gate.finding_severity({"severity": "Informational"}) == "info"
+    assert gate.finding_severity({"severity": "unexpected"}) is None
 
 
 def test_trust_gate_api_base_uses_v1():

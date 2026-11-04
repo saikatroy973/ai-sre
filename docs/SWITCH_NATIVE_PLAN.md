@@ -48,9 +48,15 @@ Implemented and verified live through **Switch Console**, the mandatory live age
 - A local `switch trust scan` wrapper around the Switch Trust CLI, plus a deterministic HTTP eval
   harness (`eval_harness.py`) with input/output guardrails and the read-only investigation tool.
 - A live Trust agent endpoint and three evaluation assignments. The PII and secret runs finished
-  with 100/100 passing results each; the LLM01 fixed-prompt run was still in progress.
+  with 100/100 passing results each; the LLM01 fixed-prompt run stalled and was canceled.
+- Live Trust traffic for the LangChain/OpenAI path over OTel: 3 interactions, 3 prompts, token
+  and latency data, and `$0.0001339` month-to-date cost on Trust agent `agn_1937c5178825ca80cb70982085181f68`.
 - A live guardrail policy, **Kubernetes Investigation Enforcement**, that blocks jailbreaks and
-  secrets and redacts email addresses. Runtime enforcement is unverified.
+  secrets and redacts email addresses. The SDK path returns `GUARDRAIL_BLOCKED` for a jailbreak
+  prompt, and outcomes show `blocked=2, redacted=1`; a successful redacted model response is not
+  demonstrated because the provider keys have no credits.
+- A live findings gate that fails closed on 5 issues, including two Critical model-evaluation
+  findings.
 - Switch Trust CLI `1.7.2` scanned the OpenAI Agents SDK harness (`0 findings`) and wrote SARIF.
   The static layers completed; Gemini AI reasoning returned 503 high-demand and 429 free-tier
   quota errors, so the AI stage did not complete. This is a local file scan, not a tenant CodeScan
@@ -66,7 +72,7 @@ Implemented and verified live through **Switch Console**, the mandatory live age
   live Console runtime.
 
 Offline validation: `ruff check .`, `ruff format --check .`, and the full pytest suite pass
-(229 tests). The Switch protocol and Console API tests use an in-memory fake and
+(232 tests). The Switch protocol and Console API tests use an in-memory fake and
 `httpx.MockTransport`; the repository's test configuration forbids real sockets.
 
 Verified live for the optional self-hosted collaboration profile:
@@ -79,10 +85,8 @@ Verified live for the optional self-hosted collaboration profile:
 
 Verified live against the provisioned Trust workspace:
 
-- `switch trust status` resolved the key identity, read the guardrail policies, zero guardrail
-  events, zero month-to-date cost, and no discovered ROI agents. A later read showed 1 agent,
-  6 MCP servers, 0 models, 0 tools, and 0 issues.
-- `switch roi` returned zero agents/cost and an empty latest-analysis map.
+- `switch trust status` resolved the key identity, read the guardrail policies, and initially
+  showed zero guardrail events, zero month-to-date cost, and no discovered ROI agents.
 - `switch trust publish` created `trust-summary-20261104T144158Z` in the self-hosted
   `k8s-governance` room. `switch trust publish --console` created
   `trust-summary-20261104T165739Z` (`61fd91f6-d5f1-410b-a4f9-d2a6da34f0db`) in the Console
@@ -98,21 +102,33 @@ Verified live against the provisioned Trust workspace:
   as Trust agent `agn_0b9ae0a09ef8cf6df36a96d572ae0c9a` with a `generic_http` endpoint. LLM01
   prompt injection, LLM02 PII leakage, and LLM02 secret leakage assignments were created. The PII
   and secret runs finished with 100 results each, all score `1`, and the agent score is `1`. The
-  LLM01 fixed-prompt run remained in progress at this recording.
+  LLM01 fixed-prompt run stalled near completion and was canceled; a rerun was started.
+- Trust Live traffic works through OpenTelemetry for the LangChain/OpenAI path. The Python
+  exporter must receive the full signal URL
+  (`https://ingestion.switchagents.ai/agent/otel/v1/traces`); the base URL posts to
+  `/agent/otel` and returns `403`. Three live calls created Trust agent
+  `agn_1937c5178825ca80cb70982085181f68` with prompts, tokens, latency, sessions, and
+  `$0.0001339` month-to-date cost.
 - Guardrail policy `705263a3-93b3-4e31-aa51-a50cc736800d` was created with block actions for
-  jailbreak and secrets and redact actions for email. No runtime event has exercised it.
-- The live findings gate returned 0 issues at the `high` threshold. The provider preflight fails
+  jailbreak and secrets and redact actions for email. The SDK path returns `GUARDRAIL_BLOCKED`
+  for a jailbreak prompt with the policy ID and a High finding. Live outcomes are `ok=4,
+  blocked=2, redacted=1, errored=2, total=9`; the redacted request's provider call failed because
+  the available provider keys have no credits.
+- The findings gate correctly **fails** the live workspace: 5 issues, including two Critical
+  model-evaluation findings (model robustness and model security). The provider preflight fails
   the supplied OpenAI key with `429 credit_balance_exhausted`, so an incomplete AI scan cannot be
   reported as a clean pass.
 
 Not yet verified or not implemented:
 
-- No ROI interactions or model spend exist, so no nonzero ROI recommendation has been
-  demonstrated. The MCP AI scanner stage did not complete.
-- Trust Live traffic is not working. The documented OTel integrations are LangChain and Claude
-  Code; direct OTLP export from this custom agent to `ingestion.switchagents.ai/agent/otel`
-  returned `403 Forbidden` with the workspace key. No SDK traffic path has been validated, so
-  guardrail block/redact behavior and per-agent cost are not demonstrated.
+- No successful redacted model response or nonzero ROI recommendation has been demonstrated. The
+  live ROI result is real but tiny (`$0.0001339`); it is cost telemetry, not an optimization
+  recommendation. The MCP AI scanner stage did not complete.
+- Trust OTel is telemetry only and does not enforce guardrails. The SDK gateway recorded block and
+  redact outcomes, but the provider keys have no credits, so end-to-end redacted content and a
+  successful model response through the gateway remain unverified.
+- The two Critical model-evaluation findings are unresolved; there is no owner/expiry exception
+  workflow, and they are not suppressed.
 - A human-only room walkthrough, semantic memory indexing, live telemetry/change sources, Scale
   Agentex hosting, and remediation execution are later phases. The local SQLite queue is
   multi-worker on one host, not a distributed cross-host queue.
@@ -764,12 +780,15 @@ Every episode must show a Switch surface and a working artifact. No episode is â
   register it as a Trust `generic_http` agent endpoint.
 - [x] Add a `switch trust scan` wrapper around the Switch Trust CLI.
 - [x] Create Trust evaluations for LLM01 prompt injection, PII leakage, and secret leakage. The
-  PII and secret runs completed 100/100 at score `1`; the LLM01 fixed-prompt run was still running.
+  PII and secret runs completed 100/100 at score `1`; the LLM01 run stalled and was canceled.
 - [ ] Add grounding/citation metrics and the remaining OWASP suites.
 - [x] Create the live **Kubernetes Investigation Enforcement** guardrail policy.
-- [ ] Exercise guardrail block/redact behavior on real SDK/OTel traffic.
+- [x] Exercise SDK gateway block/redact outcomes: `blocked=2`, `redacted=1` on live traffic.
+- [ ] Demonstrate a successful redacted model response; provider keys have no credits.
 - [x] Add optional OpenTelemetry spans for collect, reason, and verify (OTLP exporter optional).
-- [ ] Send spans to Switch Trust Live traffic; direct custom-agent OTLP export returns `403`.
+- [x] Send LangChain/OpenAI traffic to Switch Trust OTel using the full
+  `/agent/otel/v1/traces` signal URL; live sessions, tokens, and cost are visible.
+- [x] Add the findings gate and verify it fails on live Critical model-evaluation findings.
 
 ### Phase C: memory and specialists
 
@@ -860,12 +879,12 @@ Every episode must show a Switch surface and a working artifact. No episode is â
 | Every incident has a room from the template | Pass | Console incident creation and package attachment |
 | Every handoff is a room message | Pass | Console and protocol-harness transcripts |
 | Console incident room bridged to chat | Pass | Mattermost bridge `0907b3e3-â€¦`; incident room `e6f091c0-â€¦` |
-| Trust evaluations | Partial | PII and secret runs 100/100 at score `1`; LLM01 fixed-prompt run incomplete |
-| Trust guardrail policy | Partial | Policy `705263a3-â€¦` created; no runtime block/redact event yet |
-| Trust Live traffic | Fail | Custom-agent OTLP export returns `403`; SDK path unvalidated |
-| Trust findings gate | Pass | Live gate at `high`: 0 issues, 0 failing |
+| Trust evaluations | Partial | PII and secret runs 100/100 at score `1`; LLM01 run stalled and was canceled |
+| Trust guardrail enforcement | Partial | SDK gateway: `blocked=2`, `redacted=1`, `errored=2`; no successful redacted response (no credits) |
+| Trust Live traffic | Pass | OTel LangChain/OpenAI: 3 interactions, prompts, tokens, latency, `$0.0001339` cost |
+| Trust findings gate | **Fail** | 5 issues, 2 Critical model-evaluation findings; gate exits `5` at `high` |
 | Incomplete AI scan cannot pass | Pass | Provider preflight fails closed on `429 credit_balance_exhausted` |
-| Nonzero ROI analysis | Fail | Zero interactions and zero spend; no ROI recommendation |
+| Nonzero ROI analysis | Partial | Nonzero cost telemetry; no ROI recommendation or optimization |
 | No write/exec/secret tools | Pass (tool surface) | MCP tool allowlist; no OS sandbox |
 | Multi-worker queue claims | Pass (single host) | Lease recovery, stale-worker completion guard, two-worker no-double-claim test |
 | 10 concurrent incidents / crash restart | Not run | Requires a Console multi-room load and restart drill |

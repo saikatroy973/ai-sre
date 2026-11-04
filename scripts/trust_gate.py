@@ -14,6 +14,7 @@ from urllib.parse import quote, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
 SEVERITIES = ("info", "low", "medium", "high", "critical")
+SEVERITY_ALIASES = {"informational": "info"}
 
 
 def api_base(instance: str) -> str:
@@ -48,9 +49,24 @@ def _get(path: str, token: str, base: str) -> dict:
 def finding_severity(row: dict) -> str | None:
     for key in ("severity", "ai_spm_severity", "cvss_v4_severity"):
         value = row.get(key)
-        if isinstance(value, str) and value.lower() in SEVERITIES:
-            return value.lower()
+        if isinstance(value, str):
+            normalized = SEVERITY_ALIASES.get(value.lower(), value.lower())
+            if normalized in SEVERITIES:
+                return normalized
     return None
+
+
+def issue_rows(payload: dict) -> list[dict]:
+    """Normalize the Trust issues response, which uses a header/rows table."""
+    rows = payload.get("rows")
+    if not isinstance(rows, list) or not rows:
+        return []
+    header = payload.get("header")
+    if isinstance(header, list) and all(isinstance(name, str) for name in header):
+        return [dict(zip(header, row, strict=False)) for row in rows if isinstance(row, list)]
+    if all(isinstance(row, dict) for row in rows):
+        return rows
+    raise SystemExit("Trust API returned issue rows in an unknown shape")
 
 
 def failing_findings(rows: list[dict], threshold: str) -> list[dict]:
@@ -83,8 +99,8 @@ def main() -> int:
         token,
         base,
     )
-    rows = issues.get("rows") if isinstance(issues.get("rows"), list) else []
-    failing = failing_findings([row for row in rows if isinstance(row, dict)], threshold)
+    rows = issue_rows(issues)
+    failing = failing_findings(rows, threshold)
     total = issues.get("total", len(rows))
     print(f"Trust findings gate: threshold={threshold}, total={total}, failing={len(failing)}")
     for row in failing:

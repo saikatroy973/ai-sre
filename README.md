@@ -187,8 +187,9 @@ tenant/workspace, month-to-date cost was 0, and the workspace had no ROI agents 
 `switch trust publish` created `trust-summary-20261104T144158Z` in the self-hosted
 `k8s-governance` room, and `switch trust publish --console` created
 `trust-summary-20261104T165739Z` in the Console-managed `k8s-governance` room
-(`61fd91f6-d5f1-410b-a4f9-d2a6da34f0db`). A later status read showed 1 Trust agent,
-6 discovered MCP servers, 0 models, 0 tools, and 0 issues.
+(`61fd91f6-d5f1-410b-a4f9-d2a6da34f0db`). After live traffic, a status read showed 3 Trust
+agents, 3 models, 6 discovered MCP servers, 0 tools, 5 issues, and `$0.0001339` month-to-date
+cost.
 
 The pinned CodeScan action's scanner image was downloaded through the Trust API and run against a
 clean checkout. It completed its static inventory upload: 2 libraries, 2 organizations, 0 agents,
@@ -198,20 +199,38 @@ from the live workspace. The same pinned action then ran on a private GitHub-hos
 The job completed successfully in 5m50s and uploaded the same static inventory. The action warned
 that the MCP AI scanner did not complete because the model provider was unavailable or rate
 limiting; the uploaded inventory may be incomplete for AI-only findings. The repository's test
-workflow also passed. No ROI interactions existed, so the ROI result remains zero rather than a
-nonzero recommendation.
+workflow also passed. That static inventory is separate from runtime ROI.
 
 The deterministic evaluation harness (`kube_investigator.eval_harness`) was published through a
 temporary Cloudflare tunnel and registered in Trust as a `generic_http` agent endpoint for Trust
 agent `agn_0b9ae0a09ef8cf6df36a96d572ae0c9a`. Three agent evaluations were assigned: LLM01 prompt
 injection, LLM02 PII leakage, and LLM02 secret leakage. The PII and secret runs finished with 100
 results each and every result scored `1`; Trust reported an overall agent score of `1`. The LLM01
-fixed-prompt run was still running when this status was recorded, so it is not counted as a pass.
+fixed-prompt run stalled near completion, was canceled, and was not counted as a pass; a rerun was
+started.
 
-A live guardrail policy, **Kubernetes Investigation Enforcement**
-(`705263a3-93b3-4e31-aa51-a50cc736800d`), blocks jailbreaks and secrets and redacts email
-addresses on user and assistant traffic. It is created in the workspace, but runtime block/redact
-behavior has not been demonstrated because no Trust SDK traffic path is working yet.
+Trust Live traffic now works through OpenTelemetry for the LangChain/OpenAI path. The Python OTLP
+exporter needs the full signal URL
+(`https://ingestion.switchagents.ai/agent/otel/v1/traces`); passing only the documented base URL
+posts to `/agent/otel` and returns `403 Forbidden`. Three instrumented LangChain calls produced
+Trust agent `agn_1937c5178825ca80cb70982085181f68` with three interactions, prompts, token counts,
+latency, and `$0.0001339` month-to-date cost. That is a small but nonzero ROI result, not a
+recommendation.
+
+The live guardrail policy **Kubernetes Investigation Enforcement**
+(`705263a3-93b3-4e31-aa51-a50cc736800d`) blocks jailbreaks and secrets and redacts email
+addresses on user and assistant traffic. The SDK guardrail path (`switch_trust.wrap` with the
+policy ID and an agent ID) returns `GUARDRAIL_BLOCKED` for a jailbreak prompt with the policy ID,
+policy name, and a High finding. Live outcomes were `ok=4, blocked=2, redacted=1, errored=2,
+total=9`. The redaction outcome came from an email prompt; the subsequent provider call failed
+because the available provider keys have no credits, so a successful redacted model response was
+not demonstrated. Guardrails are enforced by the SDK gateway, not by OTel ingestion; OTel is
+telemetry only.
+
+Trust now reports 5 issues: two **Critical** model-evaluation risks (model robustness and model
+security), two Medium model-evaluation risks, and one Informational missing-model-evaluation
+finding. `scripts/trust_gate.py` fails at the default `high` threshold with the two Critical
+findings. That is the intended fail-closed gate result, not a clean pass.
 
 
 The local Switch Trust CLI can scan the agent code without the Trust API client:
@@ -278,11 +297,16 @@ CodeScan action when `SWITCH_TRUST_TOKEN` and `SWITCH_TRUST_LLM_API_KEY` are con
 scanning, `scripts/trust_llm_preflight.py` makes a minimal provider call; a missing key, exhausted
 quota, or unavailable model fails the job instead of letting a static-only scan look complete.
 After scanning, `scripts/trust_gate.py` reads the workspace issues and fails on any finding at or
-above `TRUST_GATE_SEVERITY` (default `high`), treating an unknown severity as failing. Without the
-Trust secrets the workflow records an explicit skip; it never reports a skipped scan as a pass.
-The CodeScan action and the local CLI scan are separate artifacts. The live gate currently passes
-with 0 issues; the supplied OpenAI key returns `429 credit_balance_exhausted`, so the preflight
-correctly blocks that scan rather than reporting a clean AI scan.
+above `TRUST_GATE_SEVERITY` (default `high`). It normalizes the API's tabular issue rows, maps
+`Informational` to `info`, and treats an unknown severity as failing. The gate runs even when the
+preflight or scan fails, so a provider outage cannot hide existing findings. Without the Trust
+secrets the workflow records an explicit skip; it never reports a skipped scan as a pass. The
+CodeScan action and the local CLI scan are separate artifacts.
+
+The live gate currently **fails** with two Critical model-evaluation findings; that is the gate
+doing its job, not a clean scan. The supplied OpenAI key also returns `429
+credit_balance_exhausted`, so the provider preflight correctly blocks the AI scan rather than
+reporting a static-only run as complete.
 
 
 ### Switch environment
@@ -336,6 +360,21 @@ export OTEL_SERVICE_NAME='kube-investigator'
 The MCP server also configures the same exporter when it starts. A missing SDK or endpoint is a
 no-op, never a reason for an investigation to fail. Switch Trust Live traffic remains a separate
 Trust data source; these spans are not a substitute for it.
+
+To send live traffic to Trust, use Trust's OpenTelemetry data source with a LangChain/OpenAI
+agent and an **Ingest only** or Editor key. Pass the full trace signal URL to the Python exporter:
+
+```sh
+OTEL_EXPORTER_OTLP_ENDPOINT='https://ingestion.switchagents.ai/agent/otel/v1/traces'
+OTEL_EXPORTER_OTLP_HEADERS='Authorization=ApiKey sk-...'
+OTEL_SERVICE_NAME='kube-investigator'
+OTEL_RESOURCE_ATTRIBUTES='gen_ai.agent.name=kube-investigator-otel'
+```
+
+The Python exporter uses an explicit `endpoint` as-is; it does not append `/v1/traces`. Passing
+only the documented base URL posts to `/agent/otel` and gets `403 Forbidden`. Trust OTel is
+telemetry only: prompts, tokens, latency, cost, and sessions. Guardrail enforcement requires the
+Switch Trust SDK gateway with a policy ID and an agent identity.
 
 ## HTTP API
 
@@ -485,20 +524,16 @@ Verified live against the optional self-hosted Switch 0.31.0 protocol stack:
 
 Not yet implemented or not yet verified:
 
-- The live Trust workspace has 1 eval agent and 6 discovered MCP servers, but no ROI interactions
-  and no model spend, so the live result is zero month-to-date cost, not a nonzero ROI analysis.
-  The MCP AI scanner stage did not complete, and the supplied OpenAI key is out of credits.
-- Trust Live traffic is not working. The documented OTel integrations are LangChain and Claude
-  Code; a direct OTLP export from this custom Python agent to
-  `ingestion.switchagents.ai/agent/otel` returned `403 Forbidden` with the workspace key. No
-  prompt/response/token spans reached Trust, and no SDK traffic path has been validated. Local
-  OTel spans still require an OTLP exporter and are not sent to Trust automatically.
-- The guardrail policy exists but block/redact behavior has not been exercised on real traffic;
-  that requires the missing Trust SDK/OTel path. The LLM01 fixed-prompt eval run was still
-  running when this status was recorded.
-- The incident queue is multi-worker on one host with worker IDs and leases, but it is not a
-  distributed cross-host queue. The 10-concurrent-incident and crash/restart production gate has
-  not been run.
+- Trust Live traffic works via OTel, and the SDK gateway records live guardrail outcomes, but no
+  successful redacted model response was demonstrated because the available provider keys have no
+  credits. OTel traffic is telemetry only; it does not enforce guardrails. The LLM01 fixed-prompt
+  evaluation was canceled after stalling and a rerun was started.
+- Trust reports two Critical model-evaluation findings for the live model, so the findings gate
+  fails. No owner/expiry exception workflow is implemented; the findings are not suppressed. The
+  MCP AI scanner stage also did not complete, and the supplied OpenAI key is out of credits.
+- The incident queue is multi-worker on one host with worker IDs, leases, stale-worker guards, and
+  expired-lease recovery, but it is not a distributed cross-host queue. The 10-concurrent-incident
+  and crash/restart production gate has not been run.
 - There is no semantic memory index, live telemetry/change source, Scale Agentex hosting, or
   remediation executor. Roles are room briefings, not Kubernetes authorization or a security
   boundary. A human-only room walkthrough and the 10 videos remain outstanding.

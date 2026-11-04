@@ -46,7 +46,7 @@ jobs:
           llm_model: ${{ vars.SWITCH_TRUST_LLM_MODEL || 'anthropic:claude-opus-4-8' }}
           llm_api_key: ${{ secrets.SWITCH_TRUST_LLM_API_KEY }}
       - name: Enforce Trust findings gate
-        if: steps.configure.outputs.enabled == 'true'
+        if: always() && steps.configure.outputs.enabled == 'true'
         env:
           SWITCH_TRUST_INSTANCE: ${{ vars.SWITCH_TRUST_INSTANCE || 'https://app.switchagents.ai' }}
           TRUST_GATE_SEVERITY: ${{ vars.TRUST_GATE_SEVERITY || 'high' }}
