@@ -108,9 +108,9 @@ Verified live against the provisioned Trust workspace:
 - Trust Live traffic works through OpenTelemetry for the LangChain/OpenAI path. The Python
   exporter must receive the full signal URL
   (`https://ingestion.switchagents.ai/agent/otel/v1/traces`); the base URL posts to
-  `/agent/otel` and returns `403`. Three live calls created Trust agent
-  `agn_1937c5178825ca80cb70982085181f68` with prompts, tokens, latency, sessions, and
-  `$0.0001339` month-to-date cost.
+  `/agent/otel` and returns `403`. Six live calls created Trust agent
+  `agn_1937c5178825ca80cb70982085181f68` with prompts, tokens, latency, sessions, and a reported
+  `$0.0001339` month-to-date cost; the three `claude-haiku-5-5` calls were not priced when checked.
 - Guardrail policy `705263a3-93b3-4e31-aa51-a50cc736800d` was created with block actions for
   jailbreak and secrets and redact actions for email. The SDK path returns `GUARDRAIL_BLOCKED`
   for a jailbreak prompt with the policy ID and a High finding. Live outcomes are `ok=7,
@@ -150,7 +150,7 @@ Not yet verified or not implemented:
 | Gap | Status | Evidence / remaining work |
 | --- | --- | --- |
 | 2. Trust evaluations | Partial | PII and secret suites 100/100 at score `1`; LLM01 stalled twice and was canceled; `claude-haiku-5-5` lacks an evaluation |
-| 3. Live traffic / OTel | Pass | 4 LangChain/OpenAI interactions with prompts, tokens, latency, and cost; full `/agent/otel/v1/traces` URL required |
+| 3. Live traffic / OTel | Pass | 6 LangChain/OpenAI interactions with prompts, tokens, latency, and reported cost; full `/agent/otel/v1/traces` URL required; new model unpriced |
 | 4. ROI | Partial | Nonzero `$0.0001339` MTD cost and 2 ROI agents; no optimization recommendation from 6 interactions |
 | 5. Guardrails | Partial | SDK outcomes `blocked=2, redacted=1, errored=2`; no successful redacted provider response because keys have no credits |
 | 6. CI gates | Pass (current) | Provider preflight fails closed on `429`; gate initially failed on 2 Critical findings, which were reviewed and retained after the model profile changed |
