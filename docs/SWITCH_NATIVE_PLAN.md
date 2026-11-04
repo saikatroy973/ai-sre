@@ -45,6 +45,11 @@ Implemented and verified live through **Switch Console**, the mandatory live age
   cited the record, reviewer, approval date, expiry, and fixture-vs-live difference, and marked it
   a historical lead, never evidence. The run ended with `evidence-summary`, passing `verification`,
   and `final-report`.
+- The first memory record was superseded by `e984ecff-bc6f-40df-ad9d-0e0be75f10b6` from live
+  Switch protocol investigation `26b9521d-6cef-43a4-a737-7852124c14f7` in room
+  `e155b2fb-9076-420f-afc1-0fa70d1fb61a`, published as document
+  `f448ca1f-c7bf-4c17-9958-4524c9be3d02`. It carries the source room, trace, five evidence IDs,
+  and eleven message IDs.
 - Composed Switch Incident Memory: human approval, provenance, tenant/cluster/namespace scope,
   expiry, superseding, integrity hashes, and untrusted-data rendering. The live memory run exposed
   that the lead payload omitted evidence/message IDs; `HistoricalLead` now returns the source
@@ -501,6 +506,12 @@ The run also exposed that the MCP lead payload omitted source evidence/message I
 and rendered context now include the investigation, trace, evidence IDs, message IDs, and content
 hash.
 
+The first record was superseded by `e984ecff-bc6f-40df-ad9d-0e0be75f10b6`, approved from live
+Switch protocol investigation `26b9521d-6cef-43a4-a737-7852124c14f7` in room
+`e155b2fb-9076-420f-afc1-0fa70d1fb61a` and published as document
+`f448ca1f-c7bf-4c17-9958-4524c9be3d02`. It carries the source room, trace, five evidence IDs,
+eleven message IDs, and the content hash; the old record is no longer returned by default.
+
 ---
 
 ## 8. Switch Trust plan
@@ -877,7 +888,8 @@ Every episode must show a Switch surface and a working artifact. No episode is �
 - Healthy and ambiguous scenarios abstain.
 - Memory recall cites an approved incident and names a difference. Verified live for record
   `957b036c-…` in Console room `50e0f612-…`; the researcher marked it a historical lead, never
-  evidence.
+  evidence. It was superseded by `e984ecff-…` from a live Switch-room investigation with full
+  room/trace/evidence/message provenance.
 - A fabricated evidence ID cannot produce a supported report.
 - A missing or truncated read produces `partial`, not a guess.
 

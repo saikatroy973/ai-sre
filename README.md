@@ -162,9 +162,16 @@ Verified live: a supported investigation was approved by reviewer `saikat` as re
 `300b744b-02d8-4e48-9956-2bd7eee241e9`, and retrieved by the Console memory researcher in room
 `50e0f612-61e9-451c-b715-db1ba01445cf`. The researcher created `memory-context`, cited the record,
 reviewer, approval date, expiry, and the fixture-vs-live difference, and marked it a historical
-lead, never evidence. The live run also exposed that the lead payload omitted evidence/message IDs;
-the model now returns the source investigation, trace, evidence IDs, message IDs, and content hash
-so the researcher can cite provenance instead of reporting a gap.
+lead, never evidence.
+
+That first record had no source Switch room because its investigation was offline. It was then
+superseded by record `e984ecff-bc6f-40df-ad9d-0e0be75f10b6`, produced by the live Switch protocol
+investigation `26b9521d-6cef-43a4-a737-7852124c14f7` in room
+`e155b2fb-9076-420f-afc1-0fa70d1fb61a` and published as document
+`f448ca1f-c7bf-4c17-9958-4524c9be3d02`. The new record carries the source room, trace, five
+evidence IDs, eleven message IDs, and the content hash. The live memory run also exposed that the
+MCP lead payload omitted evidence/message IDs; `HistoricalLead` now returns all of them and the
+rendered context includes them.
 
 ### Switch Trust and ROI
 
@@ -532,8 +539,11 @@ Verified live through Switch Console:
   ended with `evidence-summary`, a passing `verification`, and `final-report`.
 - That live memory run exposed a provenance gap: the MCP lead payload omitted source evidence and
   message IDs. `HistoricalLead` now includes the source investigation, trace, evidence IDs, message
-  IDs, and content hash, and the rendered historical context includes them; a live MCP search
-  returned all five evidence IDs and five message IDs for the approved record.
+  IDs, and content hash, and the rendered historical context includes them.
+- The first record was superseded by `e984ecff-bc6f-40df-ad9d-0e0be75f10b6` from the live Switch
+  protocol investigation `26b9521d-…` in room `e155b2fb-9076-420f-afc1-0fa70d1fb61a`, published as
+  document `f448ca1f-c7bf-4c17-9958-4524c9be3d02`. The superseding record carries the source room,
+  trace, five evidence IDs, and eleven message IDs; the old record is no longer returned by default.
 - A Console Mattermost bridge (`0907b3e3-371b-4bf6-ae11-08170b2b7975`) was created and a new
   incident room (`e6f091c0-66ad-4ba9-a2b4-8cfa0ebe4f1f`) was bridged to it. Console reports the
   room's external channel URL and six agents plus the human member; the Mattermost channel
