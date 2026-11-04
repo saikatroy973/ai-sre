@@ -1,0 +1,10 @@
+{
+  "target": {"cluster": "demo-cluster", "namespace": "shop", "service": "checkout", "deployment": "checkout"},
+  "resources": {
+    "service": {"metadata": {"name": "checkout", "namespace": "shop", "uid": "service-checkout", "resourceVersion": "3001"}, "spec": {"type": "ClusterIP", "selector": {"app": "checkout"}}},
+    "deployment": {"metadata": {"name": "checkout", "namespace": "shop", "uid": "deployment-checkout", "resourceVersion": "3002", "generation": 2}, "spec": {"replicas": 1, "selector": {"matchLabels": {"app": "checkout"}}, "template": {"metadata": {"labels": {"app": "checkout"}}}}, "status": {"observedGeneration": 2, "replicas": 1, "readyReplicas": 0, "updatedReplicas": 1}},
+    "replicasets": {"metadata": {"resourceVersion": "3003"}, "items": [{"metadata": {"name": "checkout-7f8c", "namespace": "shop", "uid": "replicaset-checkout", "resourceVersion": "3003", "labels": {"app": "checkout"}, "ownerReferences": [{"kind": "Deployment", "uid": "deployment-checkout", "controller": true}]}}]},
+    "pods": {"metadata": {"resourceVersion": "3004"}, "items": [{"metadata": {"name": "checkout-7f8c-abc", "namespace": "shop", "uid": "pod-checkout", "resourceVersion": "3004", "labels": {"app": "checkout"}, "ownerReferences": [{"kind": "ReplicaSet", "uid": "replicaset-checkout", "controller": true}]}, "status": {"phase": "Running", "conditions": [{"type": "Ready", "status": "False"}]}}]},
+    "endpointslices": {"metadata": {"resourceVersion": "3005"}, "items": [{"metadata": {"name": "checkout-not-ready", "namespace": "shop", "uid": "slice-checkout", "resourceVersion": "3005", "labels": {"kubernetes.io/service-name": "checkout"}, "ownerReferences": [{"kind": "Service", "uid": "service-checkout", "controller": true}]}, "endpoints": [{"conditions": {"ready": false}, "targetRef": {"kind": "Pod", "name": "checkout-7f8c-abc", "namespace": "shop", "uid": "pod-checkout"}}]}]}
+  }
+}

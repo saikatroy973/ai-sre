@@ -1,0 +1,38 @@
+# Example only. An administrator must review and apply this in an existing namespace.
+# Do not bind this Role to an admin kubeconfig. No Secrets, exec, logs, or writes.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kube-investigator-reader
+  namespace: shop
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kube-investigator-reader
+  namespace: shop
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services"]
+    verbs: ["get", "list"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kube-investigator-reader
+  namespace: shop
+subjects:
+  - kind: ServiceAccount
+    name: kube-investigator-reader
+    namespace: shop
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kube-investigator-reader
