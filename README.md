@@ -180,6 +180,12 @@ message. The summary is evidence of what Trust returned at that moment, not proo
 passed. ROI caps are advisory and do not stop spending; infrastructure cost attribution remains
 external to Switch ROI.
 
+Verified live against the provisioned Trust workspace: the key identity resolved to one
+tenant/workspace, the guardrail policy count was 1, month-to-date cost was 0, and the workspace
+had no ROI agents yet. `switch trust publish` created `trust-summary-20261104T144158Z` in the
+live `k8s-governance` room. This is a real read of the tenant, including an empty inventory and
+zero cost; it is not a demonstration of nonzero ROI analysis.
+
 The local Switch Trust CLI can scan the agent code without the Trust API client:
 
 ```sh
@@ -410,11 +416,11 @@ Verified live against the optional self-hosted Switch 0.31.0 protocol stack:
 
 Not yet implemented or not yet verified:
 
-- The Trust and ROI client is tested against mocked HTTP responses, not a provisioned Trust
-  tenant. No claim in this README should be read as a live Trust or ROI result. Trust Live
-  traffic, SDK/OTel instrumentation into Trust, and a CI gate that blocks promotion on findings
-  are not implemented; the CodeScan workflow only records findings. Local OTel spans require an
-  OTLP exporter and are not sent to Trust automatically.
+- The live Trust workspace currently has no discovered agents and no ROI interactions, so the
+  live result is an empty inventory and zero month-to-date cost, not a nonzero ROI analysis.
+  Trust Live traffic, SDK/OTel instrumentation into Trust, and a CI gate that blocks promotion
+  on findings are not implemented; the CodeScan workflow only records findings. Local OTel spans
+  require an OTLP exporter and are not sent to Trust automatically.
 - A sequential incident queue is implemented for the local CLI, but it is not a distributed
   multi-worker queue with lease recovery.
 - There is no semantic memory index, live telemetry/change source, Scale Agentex hosting, or

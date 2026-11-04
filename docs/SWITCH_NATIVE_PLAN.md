@@ -68,12 +68,20 @@ Verified live for the optional self-hosted collaboration profile:
   team, and user, and registered the default Mattermost bridge. The Console incident rooms remain
   internal-only, so this verifies the optional stack, not a bridged Console transcript.
 
+Verified live against the provisioned Trust workspace:
+
+- `switch trust status` resolved the key identity, read one guardrail policy, zero guardrail
+  events, zero month-to-date cost, and no discovered ROI agents.
+- `switch roi` returned zero agents/cost and an empty latest-analysis map.
+- `switch trust publish` created `trust-summary-20261104T144158Z` in the live `k8s-governance`
+  room.
+
 Not yet verified or not implemented:
 
-- Trust and ROI calls have not been run against a provisioned tenant; they are covered by mocked
-  HTTP responses. Trust Live traffic, sending OTel spans to Trust, and a promotion gate that
-  blocks on findings are not implemented. The CodeScan workflow publishes findings; it does not
-  fail a release by itself.
+- The live workspace has no discovered agents or ROI interactions, so no nonzero ROI
+  recommendation has been demonstrated. Trust Live traffic, sending OTel spans to Trust, and a
+  promotion gate that blocks on findings are not implemented. The CodeScan workflow publishes
+  findings; it does not fail a release by itself.
 - A bridged Console incident room, semantic memory indexing, live telemetry/change sources, Scale
   Agentex hosting, and remediation execution are later phases. The local SQLite queue is a
   single-worker queue, not a distributed one.
