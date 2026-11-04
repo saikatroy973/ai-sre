@@ -67,6 +67,13 @@ def test_mcp_memory_is_scoped_and_never_evidence(monkeypatch, tmp_path):
     assert result["count"] == 0
     assert result["used_as_evidence"] is False
     assert result["policy"] == "historical_leads_are_not_evidence"
+    defaulted = search_memory(
+        cluster="demo-cluster",
+        namespace="shop",
+        query="checkout selector",
+    )
+    assert defaulted["ok"] is True
+    assert defaulted["count"] == 0
 
 
 def test_mcp_source_status_abstains_without_inventing_evidence(monkeypatch, tmp_path):

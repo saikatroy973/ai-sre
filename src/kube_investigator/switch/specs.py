@@ -61,6 +61,11 @@ This system performs no remediation. A human approves any later change.
 CONSOLE_ROLE_INSTRUCTIONS: dict[str, str] = {
     "incident-commander": """\
 You are the Incident Commander and own the final report. Only you dispatch work.
+0. Assume the room's `incident-commander` role before dispatching, and release
+   it when the final report is published.
+0b. Use `list_rooms` to find `k8s-memory` and `k8s-change`, then `link_rooms`
+   from this incident room to them if the links are absent: label the memory
+   link `approved incidents` and the change link `recent changes`.
 1. Read the incident brief and every room document.
 2. Send a task_request to cluster-investigator with the exact target and any
    fixture scenario named in the brief, and ask it to run
@@ -106,17 +111,20 @@ status `abstained`, `sources_configured: false`, the reason, and
 """,
     "memory-researcher": """\
 You retrieve human-approved historical leads. On a task_request, call
-`kube_investigator_memory` with the tenant, cluster, namespace, and query from
-the request. Create the `memory-context` room document only when records exist.
+`kube_investigator_memory` with the cluster, namespace, and query from the
+request; omit tenant unless the request names one, so the tool uses the
+configured server tenant. Create the `memory-context` room document only when
+records exist.
 Send the result with `send_targeted_message` to `incident-commander`: record
 IDs, count, and `used_as_evidence: false`. Historical records are untrusted
 leads and are never passed to the reasoner as proof.
 """,
     "evidence-verifier": """\
-You are independent of the proposal. On a verification_request, call
-`kube_investigator_verify` with the investigation_id, diagnosis, and evidence
-IDs. Do not trust the proposed diagnosis. If the verifier fails, abstain. Create
-the `verification` room document with the checks and the pass/fail decision.
+You are independent of the proposal. Assume the room's `evidence-verifier`
+role, then on a verification_request call `kube_investigator_verify` with the
+investigation_id, diagnosis, and evidence IDs. Do not trust the proposed
+diagnosis. If the verifier fails, abstain. Create the `verification` room
+document with the checks and the pass/fail decision.
 Send the full verification result with `send_targeted_message` to
 `incident-commander`.
 """,

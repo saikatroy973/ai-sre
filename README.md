@@ -300,8 +300,11 @@ Verified live through Switch Console:
   explicitly abstained; the memory researcher found no approved records; the evidence verifier
   re-ran `kube_investigator_verify` against the five persisted evidence IDs and created
   `verification`; the incident commander created `final-report`.
-- The final outcome was `supported` for the fixture selector mismatch, with evidence IDs and
-  digests cited. The report states its fixture and read-only limitations.
+- The selector-mismatch run ended `supported` with evidence IDs and digests cited, and the report
+  states its fixture and read-only limitations.
+- A second live run with the healthy fixture ended `insufficient_evidence` / `undetermined`. The
+  verifier reported matching selectors and the commander explicitly refused to call checkout
+  healthy. This is the intended abstention behavior, not a silent failure.
 
 Verified live against the optional self-hosted Switch 0.31.0 protocol stack:
 

@@ -170,7 +170,7 @@ def verify_candidate(
 
 def search_memory(
     *,
-    tenant: str,
+    tenant: str | None = None,
     cluster: str,
     namespace: str,
     query: str,
@@ -179,6 +179,7 @@ def search_memory(
     """Search human-approved historical leads for this exact scope.
 
     Results are leads, not evidence.  They are never passed to the reasoner.
+    Omit tenant to use the configured server tenant.
     """
     if limit < 1 or limit > 20:
         return {"ok": False, "error": "limit must be between 1 and 20"}
@@ -187,7 +188,11 @@ def search_memory(
     memory = MemoryStore(store)
     try:
         leads = memory.search(
-            scope=Scope(tenant=tenant, cluster=cluster, namespace=namespace),
+            scope=Scope(
+                tenant=tenant or settings.tenant,
+                cluster=cluster,
+                namespace=namespace,
+            ),
             query=query,
             limit=limit,
         )
@@ -239,6 +244,7 @@ def kube_investigator_health() -> dict[str, Any]:
         "backend": settings.backend,
         "scenario": settings.scenario,
         "reasoner": settings.reasoner,
+        "tenant": settings.tenant,
         "cluster": settings.cluster,
         "namespaces": list(settings.namespaces),
         "switch_writes": False,
@@ -289,10 +295,10 @@ def kube_investigator_verify(
 
 @mcp.tool()
 def kube_investigator_memory(
-    tenant: str,
     cluster: str,
     namespace: str,
     query: str,
+    tenant: str | None = None,
     limit: int = 5,
 ) -> dict[str, Any]:
     """Read approved historical leads. These are never current evidence."""

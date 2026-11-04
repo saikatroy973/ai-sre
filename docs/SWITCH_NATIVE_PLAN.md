@@ -33,9 +33,11 @@ Implemented and verified live through **Switch Console**, the mandatory live age
 - The `kube-investigator` MCP server supplies the read-only Kubernetes evidence path. It collects
   evidence, persists it, supports independent verification, searches approved memory, and returns
   explicit abstentions for telemetry/change sources that are not configured.
-- The live run produced `evidence-summary` from the cluster investigator, explicit abstentions
-  from telemetry/change/memory, a passing `verification` from the verifier, and `final-report`
-  from the commander.
+- The live selector-mismatch run produced `evidence-summary` from the cluster investigator,
+  explicit abstentions from telemetry/change/memory, a passing `verification` from the verifier,
+  and a supported `final-report` from the commander. A second live healthy-fixture run produced
+  `insufficient_evidence` / `undetermined`; the verifier reported matching selectors and the
+  commander explicitly refused to call the service healthy.
 - Composed Switch Incident Memory: human approval, provenance, tenant/cluster/namespace scope,
   expiry, superseding, integrity hashes, and untrusted-data rendering.
 - A read-only Switch Trust/ROI client (`switch trust status|publish`, `switch roi`) that
