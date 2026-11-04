@@ -327,6 +327,77 @@ def test_trust_status_fails_closed_without_configuration(monkeypatch, capsys):
     assert "INVESTIGATOR_TRUST_API_KEY" in capsys.readouterr().err
 
 
+def test_trust_publish_console_attaches_the_summary_to_console_governance(monkeypatch, capsys):
+    class FakeTrust:
+        def __init__(self, configuration):
+            pass
+
+        def governance_summary(self, *, agent_ids=()):
+            return {
+                "trust_base_url": API_BASE,
+                "identity": {
+                    "key_scope": "workspace",
+                    "org_id": "org-1",
+                    "tenant_id": "tenant-1",
+                    "workspace_id": "workspace-1",
+                },
+                "cost": {"total_mtd_cost": 0, "total_cost_cap": None},
+                "inventory": {
+                    "agents": 0,
+                    "mcp_servers": 5,
+                    "models": 0,
+                    "tools": 0,
+                    "issues": 0,
+                },
+                "roi_agents": [],
+                "roi_agent_count": 0,
+                "guardrails": {
+                    "policy_count": 0,
+                    "policies": [],
+                    "outcomes": {"ok": 0, "total": 0},
+                },
+                "evaluations": [],
+                "advisory": "Caps are advisory.",
+            }
+
+        def close(self):
+            pass
+
+    class FakeConsole:
+        def __init__(self, configuration):
+            self.attached = None
+
+        def rooms(self):
+            return [{"id": "console-governance", "name": "k8s-governance"}]
+
+        def create_document(self, **kwargs):
+            assert "Switch Trust governance summary" in kwargs["content"]
+            return {"id": "console-doc"}
+
+        def attach_document_to_room(self, room_id, document_id):
+            self.attached = (room_id, document_id)
+
+        def close(self):
+            pass
+
+    monkeypatch.setenv("INVESTIGATOR_TRUST_API_KEY", "sk_test_only_never_print")
+    monkeypatch.setattr("kube_investigator.cli.TrustClient", FakeTrust)
+
+    class Settings:
+        server_url = "http://console.test"
+
+    monkeypatch.setattr(
+        "kube_investigator.cli.ConsoleSettings.from_env",
+        lambda required=False: Settings(),
+    )
+    monkeypatch.setattr("kube_investigator.cli.ConsoleClient", FakeConsole)
+    assert main(["switch", "trust", "publish", "--console", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["switch_room_id"] == "console-governance"
+    assert payload["switch_document_id"] == "console-doc"
+    assert payload["switch_console_url"] == "http://console.test"
+
+
 def test_trust_publish_writes_a_read_only_document_to_governance_room(
     tmp_path, monkeypatch, capsys
 ):

@@ -1,8 +1,13 @@
 import json
+from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 from uuid import UUID, uuid4
 
+import pytest
+
 from kube_investigator.cli import main
-from kube_investigator.models import InvestigationRequest
+from kube_investigator.errors import NotFoundError
+from kube_investigator.models import InvestigationRequest, utc_now
 from kube_investigator.storage import Store
 
 
@@ -44,6 +49,56 @@ def test_queue_retry_returns_a_failed_job_to_pending(tmp_path):
     assert again is not None
     assert again.id == job_id
     assert again.attempts == 2
+
+
+def test_queue_recovers_an_expired_worker_lease(tmp_path):
+    store = Store(tmp_path / "data")
+    job_id = store.enqueue(request_data())
+    claimed = store.claim_next(worker_id="worker-1", lease_seconds=-1)
+    assert claimed is not None
+    assert store.queue_jobs()[0]["worker_id"] == "worker-1"
+    recovered = store.recover_expired(now=(utc_now() + timedelta(seconds=1)).isoformat())
+    assert recovered == 1
+    assert store.queue_jobs()[0]["status"] == "pending"
+    assert store.queue_jobs()[0]["error"] == "lease expired"
+    again = store.claim_next(worker_id="worker-2")
+    assert again is not None
+    assert again.id == job_id
+    assert again.attempts == 2
+    assert store.queue_jobs()[0]["worker_id"] == "worker-2"
+
+
+def test_queue_stale_worker_cannot_complete_a_recovered_job(tmp_path):
+    store = Store(tmp_path / "data")
+    job_id = store.enqueue(request_data())
+    assert store.claim_next(worker_id="worker-1", lease_seconds=-1) is not None
+    store.recover_expired(now=(utc_now() + timedelta(seconds=1)).isoformat())
+    assert store.claim_next(worker_id="worker-2") is not None
+    with pytest.raises(NotFoundError):
+        store.complete_job(job_id, uuid4(), worker_id="worker-1")
+    store.complete_job(job_id, uuid4(), worker_id="worker-2")
+    assert store.queue_jobs()[0]["status"] == "complete"
+
+
+def test_queue_two_workers_never_claim_the_same_job(tmp_path):
+    store = Store(tmp_path / "data")
+    job_ids = {store.enqueue(request_data()) for _ in range(12)}
+
+    def claim(worker):
+        claimed = []
+        while job := store.claim_next(worker_id=worker):
+            claimed.append(job.id)
+        return claimed
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(claim, ("worker-1", "worker-2")))
+
+    claimed_ids = [job_id for batch in results for job_id in batch]
+    assert len(claimed_ids) == len(job_ids)
+    assert set(claimed_ids) == job_ids
+    assert len(set(claimed_ids)) == len(claimed_ids)
+    workers = {job["worker_id"] for job in store.queue_jobs()}
+    assert workers <= {"worker-1", "worker-2"}
 
 
 def test_queue_add_and_list_are_durable(tmp_path, capsys):

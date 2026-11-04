@@ -170,33 +170,49 @@ export INVESTIGATOR_TRUST_API_KEY='sk_...'
 export INVESTIGATOR_TRUST_INSTANCE='https://app.switchagents.ai'
 
 kube-investigator switch trust status
-kube-investigator switch trust publish   # writes a snapshot to k8s-governance
+kube-investigator switch trust publish            # writes a snapshot to k8s-governance
+kube-investigator switch trust publish --console  # writes it to Console's k8s-governance room
 kube-investigator switch roi --agent-id <trust-agent-id>
 ```
 
-`switch trust publish` requires both a configured Trust key and a live Switch runtime; it creates
-a `trust-summary-<timestamp>` room document as `incident-commander` and posts a governance
-message. The summary is evidence of what Trust returned at that moment, not proof that a gate
-passed. ROI caps are advisory and do not stop spending; infrastructure cost attribution remains
-external to Switch ROI.
+`switch trust publish` requires a configured Trust key and, by default, a live self-hosted Switch
+runtime; it creates a `trust-summary-<timestamp>` room document as `incident-commander` and posts
+a governance message. `--console` uses the Console management API to create the document and
+attach it to the Console-managed `k8s-governance` room instead. The summary is evidence of what
+Trust returned at that moment, not proof that a gate passed. ROI caps are advisory and do not stop
+spending; infrastructure cost attribution remains external to Switch ROI.
 
 Verified live against the provisioned Trust workspace: the key identity resolved to one
-tenant/workspace, the guardrail policy count was 1, month-to-date cost was 0, and the workspace
-had no ROI agents at the first read. `switch trust publish` created
-`trust-summary-20261104T144158Z` in the live `k8s-governance` room.
+tenant/workspace, month-to-date cost was 0, and the workspace had no ROI agents at the first read.
+`switch trust publish` created `trust-summary-20261104T144158Z` in the self-hosted
+`k8s-governance` room, and `switch trust publish --console` created
+`trust-summary-20261104T165739Z` in the Console-managed `k8s-governance` room
+(`61fd91f6-d5f1-410b-a4f9-d2a6da34f0db`). A later status read showed 1 Trust agent,
+6 discovered MCP servers, 0 models, 0 tools, and 0 issues.
 
 The pinned CodeScan action's scanner image was downloaded through the Trust API and run against a
 clean checkout. It completed its static inventory upload: 2 libraries, 2 organizations, 0 agents,
-5 MCP servers, and 0 secrets. A follow-up `switch trust status` read those 5 MCP servers from the
-live workspace.
-
-The same pinned action then ran on a private GitHub-hosted runner:
+5 MCP servers, and 0 secrets at the time. A follow-up `switch trust status` read those MCP servers
+from the live workspace. The same pinned action then ran on a private GitHub-hosted runner:
 [run 41855283512](https://github.com/saikatroy973/kube-investigator/actions/runs/41855283512).
 The job completed successfully in 5m50s and uploaded the same static inventory. The action warned
 that the MCP AI scanner did not complete because the model provider was unavailable or rate
 limiting; the uploaded inventory may be incomplete for AI-only findings. The repository's test
 workflow also passed. No ROI interactions existed, so the ROI result remains zero rather than a
 nonzero recommendation.
+
+The deterministic evaluation harness (`kube_investigator.eval_harness`) was published through a
+temporary Cloudflare tunnel and registered in Trust as a `generic_http` agent endpoint for Trust
+agent `agn_0b9ae0a09ef8cf6df36a96d572ae0c9a`. Three agent evaluations were assigned: LLM01 prompt
+injection, LLM02 PII leakage, and LLM02 secret leakage. The PII and secret runs finished with 100
+results each and every result scored `1`; Trust reported an overall agent score of `1`. The LLM01
+fixed-prompt run was still running when this status was recorded, so it is not counted as a pass.
+
+A live guardrail policy, **Kubernetes Investigation Enforcement**
+(`705263a3-93b3-4e31-aa51-a50cc736800d`), blocks jailbreaks and secrets and redacts email
+addresses on user and assistant traffic. It is created in the workspace, but runtime block/redact
+behavior has not been demonstrated because no Trust SDK traffic path is working yet.
+
 
 The local Switch Trust CLI can scan the agent code without the Trust API client:
 
@@ -216,13 +232,27 @@ AI reasoning attempts against Gemini returned `503 UNAVAILABLE` (high demand) or
 (free-tier quota), so this is a static scan of that scannable file, not a completed AI scan or a
 tenant CodeScan of every Python module.
 
-For Trust runtime evaluations, `src/kube_investigator/trust_harness.py` exposes a generic
-`POST /run` endpoint with input/output guardrails and the read-only investigation tool:
+Trust evaluations use the deterministic harness at `src/kube_investigator/eval_harness.py`. It does
+not call an LLM; it refuses mutation/secret requests and answers the fixture investigation with
+cited evidence. Expose it over a URL that Trust can reach:
+
+```sh
+uvicorn kube_investigator.eval_harness:app --host 127.0.0.1 --port 8099
+# For local testing, expose port 8099 with a tunnel and register that URL as a
+# generic_http agent endpoint (input_path=input, output_path=output).
+```
+
+The live registration used a temporary Cloudflare tunnel, Trust agent
+`agn_0b9ae0a09ef8cf6df36a96d572ae0c9a`, and a `generic_http` endpoint. Temporary tunnels are not a
+production hosting path.
+
+`src/kube_investigator/trust_harness.py` is a separate OpenAI Agents SDK harness used as the
+CodeScan target. It also exposes `POST /run` with input/output guardrails and the read-only
+investigation tool:
 
 ```sh
 python -m pip install -e '.[trust-eval]'
 uvicorn kube_investigator.trust_harness:app --host 127.0.0.1 --port 8099
-# Configure this URL as an eval model in Switch Trust CLI.
 ```
 
 ### Switch Trust admin prerequisites
@@ -244,9 +274,16 @@ This repository never creates, stores, or prints a Trust API key. Set it only in
 or the CI secret store.
 
 CI also includes `.github/workflows/switch-trust.yml`, which runs the pinned Switch Trust
-CodeScan action when `SWITCH_TRUST_TOKEN` and `SWITCH_TRUST_LLM_API_KEY` are configured. Without
-those secrets the workflow records an explicit skip; it never reports a skipped scan as a pass.
-The CodeScan action and the local CLI scan are separate artifacts.
+CodeScan action when `SWITCH_TRUST_TOKEN` and `SWITCH_TRUST_LLM_API_KEY` are configured. Before
+scanning, `scripts/trust_llm_preflight.py` makes a minimal provider call; a missing key, exhausted
+quota, or unavailable model fails the job instead of letting a static-only scan look complete.
+After scanning, `scripts/trust_gate.py` reads the workspace issues and fails on any finding at or
+above `TRUST_GATE_SEVERITY` (default `high`), treating an unknown severity as failing. Without the
+Trust secrets the workflow records an explicit skip; it never reports a skipped scan as a pass.
+The CodeScan action and the local CLI scan are separate artifacts. The live gate currently passes
+with 0 issues; the supplied OpenAI key returns `429 credit_balance_exhausted`, so the preflight
+correctly blocks that scan rather than reporting a clean AI scan.
+
 
 ### Switch environment
 
@@ -264,7 +301,7 @@ See `.env.example` for every Switch and Console setting.
 
 ### Durable local incident queue
 
-The CLI can persist requests in SQLite and run them with a single local worker. This is a durable
+The CLI can persist requests in SQLite and run them with local workers. This is a durable
 queue across process restarts, not a distributed workflow engine:
 
 ```sh
@@ -277,8 +314,13 @@ kube-investigator queue retry --id <queue-id>
 ```
 
 A failed job is visible as `failed` with its sanitized error; the worker does not silently retry
-it. `queue retry` returns it to pending. The queue uses the same configured adapters and the same
-fail-closed Switch policy as `investigate`.
+it. `queue retry` returns it to pending. Each worker claims with a generated worker ID and a
+lease; on startup it recovers jobs whose lease expired, and completion/failure is guarded by the
+claiming worker ID so a stale worker cannot overwrite a recovered job. A concurrency test runs two
+workers against one SQLite queue and asserts that no job is claimed twice. This is still a
+single-host SQLite queue: it is not a distributed, cross-host task ledger. The queue uses the same
+configured adapters and the same fail-closed Switch policy as `investigate`.
+
 
 ### Optional OpenTelemetry
 
@@ -374,6 +416,13 @@ Use a dedicated, least-privilege context. `deploy/reader-rbac.yaml` is a namespa
 
 Reads are bounded and time-limited. Truncated lists, missing objects, authorization failures, and unavailable APIs cause abstention/partial results. API request fields cannot select a kubeconfig, credentials, or a different context. RBAC is enforced by Kubernetes, not by an agent prompt.
 
+Verified live against the local `kind-imesh` cluster, namespace `imesh-demo`, service and
+Deployment `backend`: the read-only Kubernetes backend collected Service, Deployment, ReplicaSet,
+Pod, and EndpointSlice evidence, found two ready backend pods and matching selectors, and returned
+`insufficient_evidence` / `undetermined`. That is the intended abstention: the supported diagnosis
+is a selector mismatch, and this service does not have one.
+
+
 ## Switch integration status and honesty boundaries
 
 Implemented and tested offline:
@@ -386,13 +435,17 @@ Implemented and tested offline:
   source-abstention tools.
 - The `k8s-incident-kit` Switch package, automatically attached to new Console incident rooms,
   plus room links to `k8s-memory`, `k8s-change`, and `k8s-governance`.
-- A durable local SQLite incident queue (`queue add|list|run`) with a single-worker CLI.
+- A durable local SQLite incident queue (`queue add|list|run`) with worker IDs, leases, expired-lease
+  recovery, and a two-worker claim test.
 - Optional OTel spans for collection, reasoning, and verification.
 - Human-approved incident memory with provenance, scope, expiry, superseding, integrity hashes,
   and prompt-injection-resistant rendering.
 - A read-only Switch Trust/ROI client with sanitized errors, key-identity scope discovery,
   evaluation health, guardrail-policy, and cost summaries; `switch trust publish` records a
-  snapshot in `k8s-governance`. A pinned CodeScan CI workflow is included.
+  snapshot in the self-hosted or Console `k8s-governance` room. A pinned CodeScan CI workflow plus
+  a provider preflight and a severity findings gate are included.
+- A deterministic HTTP evaluation harness registered as a Trust `generic_http` agent, with LLM01,
+  PII, and secret evaluation assignments. A live guardrail policy is created.
 - A deterministic agent-protocol harness and a local Docker Compose definition pinned to Switch
   `0.31.0` for offline and protocol-level tests.
 
@@ -414,6 +467,11 @@ Verified live through Switch Console:
 - A second live run with the healthy fixture ended `insufficient_evidence` / `undetermined`. The
   verifier reported matching selectors and the commander explicitly refused to call checkout
   healthy. This is the intended abstention behavior, not a silent failure.
+- A Console Mattermost bridge (`0907b3e3-371b-4bf6-ae11-08170b2b7975`) was created and a new
+  incident room (`e6f091c0-66ad-4ba9-a2b4-8cfa0ebe4f1f`) was bridged to it. Console reports the
+  room's external channel URL and six agents plus the human member.
+- `switch trust publish --console` attached the Trust snapshot document to the Console-managed
+  `k8s-governance` room.
 
 Verified live against the optional self-hosted Switch 0.31.0 protocol stack:
 
@@ -423,22 +481,27 @@ Verified live against the optional self-hosted Switch 0.31.0 protocol stack:
 - The exclusive commander and verifier roles were assumed before handoff and released on session
   close.
 - `switch up --collab` started Mattermost on `:8065`; the setup container created the admin,
-  team, and user, and registered the default Mattermost bridge. The Console incident rooms remain
-  internal-only, so this verifies the optional stack, not a bridged Console transcript.
+  team, and user, and registered the default Mattermost bridge.
 
 Not yet implemented or not yet verified:
 
-- The live Trust workspace has 5 discovered MCP servers but no agents or ROI interactions, so
-  the live result is a static inventory and zero month-to-date cost, not a nonzero ROI analysis.
-  The MCP AI scanner stage did not complete. Trust Live traffic, SDK/OTel instrumentation into
-  Trust, and a CI gate that blocks promotion on findings are not implemented; the CodeScan
-  workflow only records findings. Local OTel spans require an OTLP exporter and are not sent to
-  Trust automatically.
-- A sequential incident queue is implemented for the local CLI, but it is not a distributed
-  multi-worker queue with lease recovery.
+- The live Trust workspace has 1 eval agent and 6 discovered MCP servers, but no ROI interactions
+  and no model spend, so the live result is zero month-to-date cost, not a nonzero ROI analysis.
+  The MCP AI scanner stage did not complete, and the supplied OpenAI key is out of credits.
+- Trust Live traffic is not working. The documented OTel integrations are LangChain and Claude
+  Code; a direct OTLP export from this custom Python agent to
+  `ingestion.switchagents.ai/agent/otel` returned `403 Forbidden` with the workspace key. No
+  prompt/response/token spans reached Trust, and no SDK traffic path has been validated. Local
+  OTel spans still require an OTLP exporter and are not sent to Trust automatically.
+- The guardrail policy exists but block/redact behavior has not been exercised on real traffic;
+  that requires the missing Trust SDK/OTel path. The LLM01 fixed-prompt eval run was still
+  running when this status was recorded.
+- The incident queue is multi-worker on one host with worker IDs and leases, but it is not a
+  distributed cross-host queue. The 10-concurrent-incident and crash/restart production gate has
+  not been run.
 - There is no semantic memory index, live telemetry/change source, Scale Agentex hosting, or
   remediation executor. Roles are room briefings, not Kubernetes authorization or a security
-  boundary.
+  boundary. A human-only room walkthrough and the 10 videos remain outstanding.
 
 ## Test
 

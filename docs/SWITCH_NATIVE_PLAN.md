@@ -42,39 +42,51 @@ Implemented and verified live through **Switch Console**, the mandatory live age
   expiry, superseding, integrity hashes, and untrusted-data rendering.
 - A read-only Switch Trust/ROI client (`switch trust status|publish`, `switch roi`) that
   discovers tenant/workspace from the API key, reads evaluation health, guardrail policies, and
-  cost data, and records a snapshot in `k8s-governance`. Errors are sanitized and the API key is
-  never printed.
-- A pinned Switch Trust CodeScan workflow; it skips explicitly when its secrets are absent.
-- A local `switch trust scan` wrapper around the Switch Trust CLI, plus an optional HTTP eval
-  harness with input/output guardrails and the read-only investigation tool.
-- Switch Trust CLI `1.7.2` scanned the harness (`0 findings`) and wrote SARIF. The static layers
-  completed; Gemini AI reasoning returned 503 high-demand and 429 free-tier quota errors, so the
-  AI stage did not complete. This is a local file scan, not a tenant CodeScan or eval.
+  cost data, and records a snapshot in the self-hosted or Console `k8s-governance` room. Errors are
+  sanitized and the API key is never printed.
+- A pinned Switch Trust CodeScan workflow with a provider preflight and a severity findings gate.
+- A local `switch trust scan` wrapper around the Switch Trust CLI, plus a deterministic HTTP eval
+  harness (`eval_harness.py`) with input/output guardrails and the read-only investigation tool.
+- A live Trust agent endpoint and three evaluation assignments. The PII and secret runs finished
+  with 100/100 passing results each; the LLM01 fixed-prompt run was still in progress.
+- A live guardrail policy, **Kubernetes Investigation Enforcement**, that blocks jailbreaks and
+  secrets and redacts email addresses. Runtime enforcement is unverified.
+- Switch Trust CLI `1.7.2` scanned the OpenAI Agents SDK harness (`0 findings`) and wrote SARIF.
+  The static layers completed; Gemini AI reasoning returned 503 high-demand and 429 free-tier
+  quota errors, so the AI stage did not complete. This is a local file scan, not a tenant CodeScan
+  or eval. The deterministic HTTP harness is the actual Trust eval target.
 - The incident kit is a Switch package with evidence-standard, report-template, and memory-policy
   library documents. `switch console incident` attaches it and links the new room to
   `k8s-memory`, `k8s-change`, and `k8s-governance`.
-- A durable local SQLite incident queue (`queue add|list|run`) for the protocol/API path.
+- A durable local SQLite incident queue (`queue add|list|run`) for the protocol/API path, with
+  worker IDs, leases, expired-lease recovery, stale-worker completion guards, and a two-worker
+  claim test.
 - Optional OTel spans for collection, reasoning, and verification.
 - A deterministic protocol-level harness and local Compose stack for tests and CI. It is not the
   live Console runtime.
 
-Offline validation: `ruff check .`, `ruff format --check .`, and the full pytest suite pass. The
-Switch protocol and Console API tests use an in-memory fake and `httpx.MockTransport`; the
-repository's test configuration forbids real sockets.
+Offline validation: `ruff check .`, `ruff format --check .`, and the full pytest suite pass
+(229 tests). The Switch protocol and Console API tests use an in-memory fake and
+`httpx.MockTransport`; the repository's test configuration forbids real sockets.
 
 Verified live for the optional self-hosted collaboration profile:
 
 - `switch up --collab` started Mattermost on `:8065`. The setup container created the admin,
-  team, and user, and registered the default Mattermost bridge. The Console incident rooms remain
-  internal-only, so this verifies the optional stack, not a bridged Console transcript.
+  team, and user, and registered the default Mattermost bridge.
+- A Console Mattermost bridge (`0907b3e3-371b-4bf6-ae11-08170b2b7975`) was created and Console
+  incident room `e6f091c0-66ad-4ba9-a2b4-8cfa0ebe4f1f` was bridged to it, giving the room an
+  external channel URL. This is a live Console-room bridge, not only the optional stack.
 
 Verified live against the provisioned Trust workspace:
 
-- `switch trust status` resolved the key identity, read one guardrail policy, zero guardrail
-  events, zero month-to-date cost, and no discovered ROI agents.
+- `switch trust status` resolved the key identity, read the guardrail policies, zero guardrail
+  events, zero month-to-date cost, and no discovered ROI agents. A later read showed 1 agent,
+  6 MCP servers, 0 models, 0 tools, and 0 issues.
 - `switch roi` returned zero agents/cost and an empty latest-analysis map.
-- `switch trust publish` created `trust-summary-20261104T144158Z` in the live `k8s-governance`
-  room.
+- `switch trust publish` created `trust-summary-20261104T144158Z` in the self-hosted
+  `k8s-governance` room. `switch trust publish --console` created
+  `trust-summary-20261104T165739Z` (`61fd91f6-d5f1-410b-a4f9-d2a6da34f0db`) in the Console
+  `k8s-governance` room.
 - The pinned CodeScan action's scanner image was downloaded through the Trust API and run on a
   clean checkout. Its static inventory uploaded 2 libraries, 2 organizations, 0 agents,
   5 MCP servers, and 0 secrets. A follow-up `switch trust status` read the 5 MCP servers.
@@ -82,17 +94,28 @@ Verified live against the provisioned Trust workspace:
   static inventory uploaded, test workflow passed. GitHub reported that the MCP AI scanner did
   not complete because the model provider was unavailable or rate limiting; AI-only inventory
   may therefore be incomplete.
+- The deterministic eval harness was exposed through a temporary Cloudflare tunnel and registered
+  as Trust agent `agn_0b9ae0a09ef8cf6df36a96d572ae0c9a` with a `generic_http` endpoint. LLM01
+  prompt injection, LLM02 PII leakage, and LLM02 secret leakage assignments were created. The PII
+  and secret runs finished with 100 results each, all score `1`, and the agent score is `1`. The
+  LLM01 fixed-prompt run remained in progress at this recording.
+- Guardrail policy `705263a3-93b3-4e31-aa51-a50cc736800d` was created with block actions for
+  jailbreak and secrets and redact actions for email. No runtime event has exercised it.
+- The live findings gate returned 0 issues at the `high` threshold. The provider preflight fails
+  the supplied OpenAI key with `429 credit_balance_exhausted`, so an incomplete AI scan cannot be
+  reported as a clean pass.
 
 Not yet verified or not implemented:
 
-- The live workspace has 5 discovered MCP servers but no agents or ROI interactions, so no
-  nonzero ROI recommendation has been demonstrated, and the MCP AI scanner stage did not
-  complete. Trust Live traffic, sending OTel spans to Trust, and a promotion gate that blocks on
-  findings are not implemented. The CodeScan workflow publishes findings; it does not fail a
-  release by itself.
-- A bridged Console incident room, semantic memory indexing, live telemetry/change sources, Scale
-  Agentex hosting, and remediation execution are later phases. The local SQLite queue is a
-  single-worker queue, not a distributed one.
+- No ROI interactions or model spend exist, so no nonzero ROI recommendation has been
+  demonstrated. The MCP AI scanner stage did not complete.
+- Trust Live traffic is not working. The documented OTel integrations are LangChain and Claude
+  Code; direct OTLP export from this custom agent to `ingestion.switchagents.ai/agent/otel`
+  returned `403 Forbidden` with the workspace key. No SDK traffic path has been validated, so
+  guardrail block/redact behavior and per-agent cost are not demonstrated.
+- A human-only room walkthrough, semantic memory indexing, live telemetry/change sources, Scale
+  Agentex hosting, and remediation execution are later phases. The local SQLite queue is
+  multi-worker on one host, not a distributed cross-host queue.
 - The local Console demo uses OpenCode Auto mode because there is no separate human approval
   channel. Auto mode approves every provider tool request. The MCP evidence tools are read-only,
   but the demo is not an OS sandbox; a shared deployment needs dedicated OS accounts/containers
@@ -727,8 +750,8 @@ Every episode must show a Switch surface and a working artifact. No episode is â
   to `k8s-memory`, `k8s-change`, and `k8s-governance`.
 - [x] Add `switch up --collab` support and verify the Mattermost profile, setup seeder, and
   default bridge on the self-hosted stack.
+- [x] Bridge a Console incident room to Mattermost and verify its external channel URL.
 - [ ] Run a human-only room walkthrough and record it.
-- [ ] Bridge a Console incident room to Mattermost (the Console path remains internal-only).
 
 ### Phase B: evidence and trust
 
@@ -737,12 +760,16 @@ Every episode must show a Switch surface and a working artifact. No episode is â
 - [x] Add Trust CodeScan to CI and run the pinned scanner image against a clean checkout.
 - [x] Run the GitHub CodeScan Action on a GitHub-hosted runner (static inventory; AI scanner
   incomplete because of provider availability).
-- [x] Create the optional HTTP evaluation harness (`trust_harness.py`) with guardrails.
+- [x] Create the deterministic HTTP evaluation harness (`eval_harness.py`) with guardrails and
+  register it as a Trust `generic_http` agent endpoint.
 - [x] Add a `switch trust scan` wrapper around the Switch Trust CLI.
-- [ ] Add Trust evaluations: OWASP, PII, secrets, grounding, citations.
-- [ ] Create or review a guardrail policy in the live workspace (one policy exists).
+- [x] Create Trust evaluations for LLM01 prompt injection, PII leakage, and secret leakage. The
+  PII and secret runs completed 100/100 at score `1`; the LLM01 fixed-prompt run was still running.
+- [ ] Add grounding/citation metrics and the remaining OWASP suites.
+- [x] Create the live **Kubernetes Investigation Enforcement** guardrail policy.
+- [ ] Exercise guardrail block/redact behavior on real SDK/OTel traffic.
 - [x] Add optional OpenTelemetry spans for collect, reason, and verify (OTLP exporter optional).
-- [ ] Send the same spans to Switch Trust Live traffic; that remains a Trust configuration gap.
+- [ ] Send spans to Switch Trust Live traffic; direct custom-agent OTLP export returns `403`.
 
 ### Phase C: memory and specialists
 
@@ -756,8 +783,9 @@ Every episode must show a Switch surface and a working artifact. No episode is â
 ### Phase D: scale and observe
 
 - [x] Add a bounded concurrency cap (synchronous API/CLI path).
-- [x] Add a durable local SQLite incident queue with a single-worker CLI (`queue add|list|run`).
-- [ ] Add a distributed or multi-worker queue with lease recovery.
+- [x] Add a durable local SQLite incident queue with `queue add|list|run`.
+- [x] Add worker IDs, leases, expired-lease recovery, and a two-worker no-double-claim test.
+- [ ] Replace the single-host SQLite queue with a distributed cross-host task ledger.
 - [ ] Load-test concurrent rooms.
 - [ ] Kill/restart test with a Console-managed agent.
 - [ ] Add ROI improvements review.
@@ -822,6 +850,26 @@ Every episode must show a Switch surface and a working artifact. No episode is â
 - Cost per incident and per agent is reported.
 
 ---
+
+### Current gate snapshot (2026-11-04)
+
+| Gate | Status | Evidence / remaining work |
+| --- | --- | --- |
+| Selector mismatch supported with citations | Pass | Console selector-mismatch run; five persisted evidence IDs |
+| Healthy/ambiguous abstention | Pass | Console healthy run; live `kind-imesh` backend read abstained |
+| Every incident has a room from the template | Pass | Console incident creation and package attachment |
+| Every handoff is a room message | Pass | Console and protocol-harness transcripts |
+| Console incident room bridged to chat | Pass | Mattermost bridge `0907b3e3-â€¦`; incident room `e6f091c0-â€¦` |
+| Trust evaluations | Partial | PII and secret runs 100/100 at score `1`; LLM01 fixed-prompt run incomplete |
+| Trust guardrail policy | Partial | Policy `705263a3-â€¦` created; no runtime block/redact event yet |
+| Trust Live traffic | Fail | Custom-agent OTLP export returns `403`; SDK path unvalidated |
+| Trust findings gate | Pass | Live gate at `high`: 0 issues, 0 failing |
+| Incomplete AI scan cannot pass | Pass | Provider preflight fails closed on `429 credit_balance_exhausted` |
+| Nonzero ROI analysis | Fail | Zero interactions and zero spend; no ROI recommendation |
+| No write/exec/secret tools | Pass (tool surface) | MCP tool allowlist; no OS sandbox |
+| Multi-worker queue claims | Pass (single host) | Lease recovery, stale-worker completion guard, two-worker no-double-claim test |
+| 10 concurrent incidents / crash restart | Not run | Requires a Console multi-room load and restart drill |
+| Distributed queue / semantic index / Scale hosting | Not implemented | Documented external gaps |
 
 ## 16. Open decisions
 

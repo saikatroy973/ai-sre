@@ -230,6 +230,13 @@ class ConsoleClient:
         )
         self._check(response, "Console package document attachment")
 
+    def attach_document_to_room(self, room_id: str, document_id: str) -> None:
+        response = self._request(
+            "POST",
+            f"/gateway/rooms/{room_id}/documents/{document_id}",
+        )
+        self._check(response, "Console room document attachment")
+
     def room_packages(self, room_id: str) -> list[dict[str, Any]]:
         return self._list(
             f"/gateway/rooms/{room_id}/packages",

@@ -143,6 +143,9 @@ def test_console_package_document_and_room_link_routes():
             )
         if request.url.path.endswith("/documents/doc-1"):
             return response({"ok": True}, status=201)
+        if request.url.path == "/gateway/rooms/room-1/documents/doc-1":
+            assert request.method == "POST"
+            return response({"ok": True}, status=201)
         if request.url.path.endswith("/packages/pkg-1"):
             return response({"ok": True}, status=201)
         raise AssertionError(f"unexpected {request.method} {request.url.path}")
@@ -158,9 +161,11 @@ def test_console_package_document_and_room_link_routes():
     assert console.package_documents("pkg-1") == [{"id": "doc-1"}]
     console.add_document_to_package("pkg-1", "doc-1")
     console.attach_package_to_room("room-1", "pkg-1")
+    console.attach_document_to_room("room-1", "doc-1")
     console.link_room("room-1", "memory-1", "approved incidents")
     assert ("POST", "/gateway/packages/pkg-1/documents/doc-1") in seen
     assert ("POST", "/gateway/rooms/room-1/packages/pkg-1") in seen
+    assert ("POST", "/gateway/rooms/room-1/documents/doc-1") in seen
     assert ("POST", "/gateway/rooms/room-1/linked-rooms") in seen
 
 

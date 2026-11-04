@@ -4,6 +4,7 @@ import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import timedelta
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -75,6 +76,8 @@ class Store:
                     attempts INTEGER NOT NULL DEFAULT 0,
                     investigation_id TEXT,
                     error TEXT,
+                    worker_id TEXT,
+                    lease_until TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
@@ -88,6 +91,12 @@ class Store:
                     SELECT RAISE(ABORT, 'evidence is append-only'); END;
                 """
             )
+            columns = {
+                row[1] for row in connection.execute("PRAGMA table_info(investigation_queue)")
+            }
+            for name, kind in (("worker_id", "TEXT"), ("lease_until", "TEXT")):
+                if name not in columns:
+                    connection.execute(f"ALTER TABLE investigation_queue ADD COLUMN {name} {kind}")
 
     @contextmanager
     def connection(self) -> Iterator[sqlite3.Connection]:
@@ -219,7 +228,7 @@ class Store:
     def queue_jobs(self, *, status: str | None = None) -> list[dict[str, object]]:
         query = (
             "SELECT id, request, status, attempts, investigation_id, error, "
-            "created_at, updated_at FROM investigation_queue"
+            "worker_id, lease_until, created_at, updated_at FROM investigation_queue"
         )
         parameters: tuple[object, ...] = ()
         if status is not None:
@@ -236,16 +245,27 @@ class Store:
                 "attempts": row[3],
                 "investigation_id": row[4],
                 "error": row[5],
-                "created_at": row[6],
-                "updated_at": row[7],
+                "worker_id": row[6],
+                "lease_until": row[7],
+                "created_at": row[8],
+                "updated_at": row[9],
             }
             for row in rows
         ]
 
-    def claim_next(self) -> QueueJob | None:
-        """Atomically move the oldest pending job to running."""
-        now = utc_now().isoformat()
+    def claim_next(
+        self,
+        *,
+        worker_id: str | None = None,
+        lease_seconds: int = 300,
+    ) -> QueueJob | None:
+        """Atomically move the oldest pending job to running with a lease."""
+        now = utc_now()
+        lease_until = (now + timedelta(seconds=lease_seconds)).isoformat()
         with self.connection() as connection:
+            # Serialize the select-and-claim pair so two workers cannot choose
+            # the same row and let the loser exit while other jobs remain.
+            connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
                 "SELECT id, request, attempts FROM investigation_queue "
                 "WHERE status = 'pending' ORDER BY rowid LIMIT 1"
@@ -254,9 +274,10 @@ class Store:
                 return None
             updated = connection.execute(
                 "UPDATE investigation_queue "
-                "SET status = 'running', attempts = attempts + 1, updated_at = ? "
+                "SET status = 'running', attempts = attempts + 1, worker_id = ?, "
+                "lease_until = ?, updated_at = ? "
                 "WHERE id = ? AND status = 'pending'",
-                (now, row[0]),
+                (worker_id, lease_until, now.isoformat(), row[0]),
             )
             if updated.rowcount != 1:
                 return None
@@ -266,25 +287,65 @@ class Store:
             attempts=int(row[2]) + 1,
         )
 
-    def complete_job(self, job_id: UUID, investigation_id: UUID) -> None:
+    def recover_expired(self, *, now: str | None = None) -> int:
+        """Return running jobs whose lease expired to pending."""
+        timestamp = now or utc_now().isoformat()
         with self.connection() as connection:
             result = connection.execute(
-                "UPDATE investigation_queue SET status = 'complete', investigation_id = ?, "
-                "error = NULL, updated_at = ? WHERE id = ? AND status = 'running'",
-                (str(investigation_id), utc_now().isoformat(), str(job_id)),
+                "UPDATE investigation_queue "
+                "SET status = 'pending', worker_id = NULL, lease_until = NULL, "
+                "error = 'lease expired', updated_at = ? "
+                "WHERE status = 'running' "
+                "AND (lease_until IS NULL OR lease_until < ?)",
+                (timestamp, timestamp),
             )
-            if result.rowcount != 1:
-                raise NotFoundError("Queue job is not running")
+        return result.rowcount
 
-    def fail_job(self, job_id: UUID, error: str) -> None:
+    def complete_job(
+        self,
+        job_id: UUID,
+        investigation_id: UUID,
+        *,
+        worker_id: str | None = None,
+    ) -> None:
+        query = (
+            "UPDATE investigation_queue SET status = 'complete', investigation_id = ?, "
+            "error = NULL, worker_id = NULL, lease_until = NULL, updated_at = ? "
+            "WHERE id = ? AND status = 'running'"
+        )
+        parameters: list[object] = [
+            str(investigation_id),
+            utc_now().isoformat(),
+            str(job_id),
+        ]
+        if worker_id is not None:
+            query += " AND worker_id = ?"
+            parameters.append(worker_id)
         with self.connection() as connection:
-            result = connection.execute(
-                "UPDATE investigation_queue SET status = 'failed', error = ?, "
-                "updated_at = ? WHERE id = ? AND status = 'running'",
-                (error[:2000], utc_now().isoformat(), str(job_id)),
-            )
+            result = connection.execute(query, tuple(parameters))
             if result.rowcount != 1:
-                raise NotFoundError("Queue job is not running")
+                raise NotFoundError("Queue job is not running for this worker")
+
+    def fail_job(
+        self,
+        job_id: UUID,
+        error: str,
+        *,
+        worker_id: str | None = None,
+    ) -> None:
+        query = (
+            "UPDATE investigation_queue SET status = 'failed', error = ?, "
+            "worker_id = NULL, lease_until = NULL, updated_at = ? "
+            "WHERE id = ? AND status = 'running'"
+        )
+        parameters: list[object] = [error[:2000], utc_now().isoformat(), str(job_id)]
+        if worker_id is not None:
+            query += " AND worker_id = ?"
+            parameters.append(worker_id)
+        with self.connection() as connection:
+            result = connection.execute(query, tuple(parameters))
+            if result.rowcount != 1:
+                raise NotFoundError("Queue job is not running for this worker")
 
     def retry_job(self, job_id: UUID) -> None:
         with self.connection() as connection:

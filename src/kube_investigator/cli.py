@@ -210,6 +210,11 @@ def parser() -> argparse.ArgumentParser:
     )
     trust_publish.add_argument("--agent-id", action="append", default=[])
     trust_publish.add_argument("--state-dir", type=Path)
+    trust_publish.add_argument(
+        "--console",
+        action="store_true",
+        help="Publish into the Console-managed k8s-governance room",
+    )
     trust_publish.add_argument("--json", action="store_true")
     trust_scan = trust_commands.add_parser(
         "scan", help="Run the Switch Trust CLI scan on agent code"
@@ -401,14 +406,16 @@ def _run_queue(args: argparse.Namespace, store: Store) -> int:
     settings = _settings_from_args(args)
     coordinator = build_coordinator(settings)
     results: list[dict[str, object]] = []
+    worker_id = uuid4().hex
     try:
+        store.recover_expired()
         while True:
-            job = store.claim_next()
+            job = store.claim_next(worker_id=worker_id)
             if job is None:
                 break
             try:
                 investigation = coordinator.run(job.request, Principal.operator(settings))
-                store.complete_job(job.id, investigation.id)
+                store.complete_job(job.id, investigation.id, worker_id=worker_id)
                 results.append(
                     {
                         "queue_id": str(job.id),
@@ -417,7 +424,7 @@ def _run_queue(args: argparse.Namespace, store: Store) -> int:
                     }
                 )
             except InvestigatorError as exc:
-                store.fail_job(job.id, str(exc))
+                store.fail_job(job.id, str(exc), worker_id=worker_id)
                 results.append(
                     {
                         "queue_id": str(job.id),
@@ -880,6 +887,46 @@ def _switch_trust(args: argparse.Namespace) -> int:
                 print(json.dumps(summary, indent=2, sort_keys=True))
             else:
                 print(render_governance_summary(summary), end="")
+            return 0
+        if getattr(args, "console", False):
+            console_settings = ConsoleSettings.from_env(required=True)
+            console = ConsoleClient(console_settings)
+            try:
+                governance = next(
+                    (item for item in console.rooms() if str(item.get("name")) == "k8s-governance"),
+                    None,
+                )
+                if governance is None:
+                    raise SwitchError("Console k8s-governance room is not available")
+                room_id = str(governance.get("id"))
+                document = render_governance_summary(summary)
+                stamp = utc_now().strftime("%Y%m%dT%H%M%SZ")
+                created = console.create_document(
+                    name=f"trust-summary-{stamp}",
+                    description="Read-only Switch Trust and ROI summary.",
+                    instructions=(
+                        "Governance evidence only. Re-read Trust before making a gate "
+                        "decision; this snapshot does not prove a gate passed."
+                    ),
+                    content=document,
+                )
+                document_id = str(created["id"])
+                console.attach_document_to_room(room_id, document_id)
+            finally:
+                console.close()
+            payload = {
+                "summary": summary,
+                "switch_document_id": document_id,
+                "switch_event_id": None,
+                "switch_room_id": room_id,
+                "switch_console_url": console_settings.server_url,
+            }
+            if args.json:
+                print(json.dumps(payload, indent=2, sort_keys=True))
+            else:
+                print(document, end="")
+                print(f"\nConsole governance room: {room_id}")
+                print(f"Document: {document_id}")
             return 0
         runtime = build_switch_runtime(_settings_from_args(args))
         if runtime is None:
