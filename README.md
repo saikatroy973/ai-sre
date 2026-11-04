@@ -188,10 +188,15 @@ had no ROI agents at the first read. `switch trust publish` created
 The pinned CodeScan action's scanner image was downloaded through the Trust API and run against a
 clean checkout. It completed its static inventory upload: 2 libraries, 2 organizations, 0 agents,
 5 MCP servers, and 0 secrets. A follow-up `switch trust status` read those 5 MCP servers from the
-live workspace. The MCP AI scanner stage was skipped because the Gemini provider returned
-`503 UNAVAILABLE` and free-tier quota errors, so this is a completed static inventory scan, not a
-completed AI-assisted scan. No ROI interactions existed, so the ROI result remains zero rather
-than a nonzero recommendation.
+live workspace.
+
+The same pinned action then ran on a private GitHub-hosted runner:
+[run 41855283512](https://github.com/saikatroy973/kube-investigator/actions/runs/41855283512).
+The job completed successfully in 5m50s and uploaded the same static inventory. The action warned
+that the MCP AI scanner did not complete because the model provider was unavailable or rate
+limiting; the uploaded inventory may be incomplete for AI-only findings. The repository's test
+workflow also passed. No ROI interactions existed, so the ROI result remains zero rather than a
+nonzero recommendation.
 
 The local Switch Trust CLI can scan the agent code without the Trust API client:
 

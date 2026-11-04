@@ -78,7 +78,10 @@ Verified live against the provisioned Trust workspace:
 - The pinned CodeScan action's scanner image was downloaded through the Trust API and run on a
   clean checkout. Its static inventory uploaded 2 libraries, 2 organizations, 0 agents,
   5 MCP servers, and 0 secrets. A follow-up `switch trust status` read the 5 MCP servers.
-  The MCP AI scanner stage was skipped after Gemini 503/free-tier quota errors.
+- The same action ran on a private GitHub-hosted runner (run `41855283512`): success in 5m50s,
+  static inventory uploaded, test workflow passed. GitHub reported that the MCP AI scanner did
+  not complete because the model provider was unavailable or rate limiting; AI-only inventory
+  may therefore be incomplete.
 
 Not yet verified or not implemented:
 
@@ -732,7 +735,8 @@ Every episode must show a Switch surface and a working artifact. No episode is â
 - [x] Build the read-only Kubernetes MCP tool server (not a write gateway).
 - [x] Build evidence store and verifier.
 - [x] Add Trust CodeScan to CI and run the pinned scanner image against a clean checkout.
-- [ ] Run the GitHub CodeScan Action on a GitHub-hosted runner.
+- [x] Run the GitHub CodeScan Action on a GitHub-hosted runner (static inventory; AI scanner
+  incomplete because of provider availability).
 - [x] Create the optional HTTP evaluation harness (`trust_harness.py`) with guardrails.
 - [x] Add a `switch trust scan` wrapper around the Switch Trust CLI.
 - [ ] Add Trust evaluations: OWASP, PII, secrets, grounding, citations.

@@ -12,6 +12,7 @@ permissions:
 jobs:
   codescan:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       SWITCH_TRUST_TOKEN: ${{ secrets.SWITCH_TRUST_TOKEN }}
       SWITCH_TRUST_LLM_API_KEY: ${{ secrets.SWITCH_TRUST_LLM_API_KEY }}
