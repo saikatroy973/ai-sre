@@ -47,8 +47,9 @@ Implemented and verified live through **Switch Console**, the mandatory live age
 - A pinned Switch Trust CodeScan workflow; it skips explicitly when its secrets are absent.
 - A local `switch trust scan` wrapper around the Switch Trust CLI, plus an optional HTTP eval
   harness with input/output guardrails and the read-only investigation tool.
-- Switch Trust CLI `1.7.2` scanned the harness (`0 findings`, static-only because no LLM provider
-  key was configured) and wrote SARIF. This is a local file scan, not a tenant CodeScan or eval.
+- Switch Trust CLI `1.7.2` scanned the harness (`0 findings`) and wrote SARIF. The static layers
+  completed; Gemini AI reasoning returned 503 high-demand and 429 free-tier quota errors, so the
+  AI stage did not complete. This is a local file scan, not a tenant CodeScan or eval.
 - The incident kit is a Switch package with evidence-standard, report-template, and memory-policy
   library documents. `switch console incident` attaches it and links the new room to
   `k8s-memory`, `k8s-change`, and `k8s-governance`.

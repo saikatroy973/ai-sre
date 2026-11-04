@@ -193,9 +193,10 @@ the static findings and says the model stages were skipped. The scan is local; i
 room content or evidence.
 
 A local scan of this repository with Switch Trust CLI `1.7.2` scanned one supported framework
-file (`trust_harness.py`), reported **0 findings**, and wrote SARIF. The AI reasoning and triage
-stages were skipped because no LLM provider key was configured, so this is a static scan of that
-scannable file, not a tenant CodeScan of every Python module.
+file (`trust_harness.py`), reported **0 findings**, and wrote SARIF. Static analysis completed;
+AI reasoning attempts against Gemini returned `503 UNAVAILABLE` (high demand) or `429`
+(free-tier quota), so this is a static scan of that scannable file, not a completed AI scan or a
+tenant CodeScan of every Python module.
 
 For Trust runtime evaluations, `src/kube_investigator/trust_harness.py` exposes a generic
 `POST /run` endpoint with input/output guardrails and the read-only investigation tool:
@@ -218,7 +219,8 @@ Based on the Switch Trust admin documentation:
 - Keys can expire after up to 365 days. Lowering a member's role immediately revokes keys
   scoped above the new role.
 - The CodeScan action uses a separate `SWITCH_TRUST_TOKEN`, typically an **Ingest only** or
-  **Editor** key, plus `SWITCH_TRUST_LLM_API_KEY` for its scanner model.
+  **Editor** key, plus `SWITCH_TRUST_LLM_API_KEY` for its scanner model. A GitHub personal
+  access token is not a Switch Trust API key and is rejected by the Trust API.
 
 This repository never creates, stores, or prints a Trust API key. Set it only in the environment
 or the CI secret store.
