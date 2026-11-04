@@ -173,7 +173,7 @@ Not yet verified or not implemented:
 | 3. Live traffic / OTel | Pass | 6 LangChain/OpenAI interactions with prompts, tokens, latency, and reported cost; full `/agent/otel/v1/traces` URL required; new model unpriced |
 | 4. ROI | Partial | Nonzero `$0.0001339` MTD cost and 2 ROI agents; no optimization recommendation from 6 interactions |
 | 5. Guardrails | Partial | SDK outcomes `blocked=2, redacted=1, errored=2`; no successful redacted provider response because keys have no credits |
-| 6. CI gates | Pass (current) | Provider preflight fails closed on `429`; OpenCode Go AI CodeScan run `41893473483` completed and the gate passed; historical 2 Critical findings were reviewed and retained |
+| 6. CI gates | Pass (current) | Provider preflight fails closed on `429`; OpenCode Go AI CodeScan run `41893473483` completed and the gate passed; the PR-triggered official action still needs credits; historical 2 Critical findings were reviewed and retained |
 | 7. Deployment unification | Pass | Console is the mandatory live runtime; the self-hosted protocol stack is an optional test harness |
 | 8. Collaboration bridges | Pass | Console Mattermost bridge; channel contains 10 mirrored investigation messages |
 | 9. Live Kubernetes / Scale | Partial | Live `kind-imesh` read abstained as designed; Scale Agentex/SGP has no credentials and is not deployed |

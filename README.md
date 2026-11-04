@@ -339,7 +339,8 @@ uses `deepseek-v4.1-flash`. GitHub Actions
 [run 41893473483](https://github.com/saikatroy973/kube-investigator/actions/runs/41893473483)
 completed the AI scan in 4m16s: 2 libraries, 2 organizations, 6 MCP servers, 0 secrets, and no
 secret findings; the findings gate passed. The workflow is manual because it downloads a large
-scanner image and uses a paid provider.
+scanner image and uses a paid provider. The PR-triggered pinned-action workflow still needs a
+directly billable provider key; until then it fails closed at the provider preflight.
 
 
 ### Switch environment
