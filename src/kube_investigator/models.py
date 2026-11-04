@@ -119,6 +119,10 @@ class HistoricalLead(StrictModel):
     diagnosis: Literal["service_selector_mismatch", "undetermined"]
     source_investigation_id: UUID | None = None
     source_room_id: str | None = None
+    source_trace_id: str | None = None
+    source_evidence_ids: list[UUID] = Field(default_factory=list)
+    source_message_ids: list[UUID] = Field(default_factory=list)
+    content_sha256: str = ""
     approved_by: str
     approved_at: datetime
     expires_at: datetime

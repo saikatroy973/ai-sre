@@ -91,6 +91,10 @@ class MemoryRecord(StrictModel):
             diagnosis=self.diagnosis,
             source_investigation_id=self.source_investigation_id,
             source_room_id=self.source_room_id,
+            source_trace_id=self.source_trace_id,
+            source_evidence_ids=self.source_evidence_ids,
+            source_message_ids=self.source_message_ids,
+            content_sha256=self.content_sha256,
             approved_by=self.reviewer,
             approved_at=self.approved_at,
             expires_at=self.expires_at,
@@ -291,6 +295,19 @@ class MemoryStore:
                     f"approved_by: {lead.approved_by}",
                     f"approved_at: {lead.approved_at.isoformat()}",
                     f"expires_at: {lead.expires_at.isoformat()}",
+                    "source_investigation: "
+                    + (
+                        str(lead.source_investigation_id)
+                        if lead.source_investigation_id
+                        else "not recorded"
+                    ),
+                    f"source_room: {lead.source_room_id or 'not recorded'}",
+                    f"source_trace: {lead.source_trace_id or 'not recorded'}",
+                    "source_evidence_ids: "
+                    + (", ".join(str(item) for item in lead.source_evidence_ids) or "not recorded"),
+                    "source_message_ids: "
+                    + (", ".join(str(item) for item in lead.source_message_ids) or "not recorded"),
+                    f"content_sha256: {lead.content_sha256 or 'not recorded'}",
                     "summary:",
                     _quoted(lead.summary),
                     "",

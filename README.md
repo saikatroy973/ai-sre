@@ -157,6 +157,15 @@ to the reasoner, and never counted as evidence. There is no native "Switch Memor
 this is a documented composition of Switch persistent memory, room documents, linked rooms, and
 human approval.
 
+Verified live: a supported investigation was approved by reviewer `saikat` as record
+`957b036c-b8bb-4fbc-9a5b-d3a7c472276e`, published to the self-hosted `k8s-memory` room as document
+`300b744b-02d8-4e48-9956-2bd7eee241e9`, and retrieved by the Console memory researcher in room
+`50e0f612-61e9-451c-b715-db1ba01445cf`. The researcher created `memory-context`, cited the record,
+reviewer, approval date, expiry, and the fixture-vs-live difference, and marked it a historical
+lead, never evidence. The live run also exposed that the lead payload omitted evidence/message IDs;
+the model now returns the source investigation, trace, evidence IDs, message IDs, and content hash
+so the researcher can cite provenance instead of reporting a gap.
+
 ### Switch Trust and ROI
 
 The read-only governance client is separate from the room server. It reads the API key's
@@ -507,14 +516,24 @@ Verified live through Switch Console:
   `telemetry-analyst`, `change-analyst`, and `memory-researcher` with Switch
   `send_targeted_message`; each specialist used the `kube-investigator` MCP server.
 - The cluster investigator created `evidence-summary`; the telemetry and change analysts
-  explicitly abstained; the memory researcher found no approved records; the evidence verifier
-  re-ran `kube_investigator_verify` against the five persisted evidence IDs and created
+  explicitly abstained; the memory researcher found no approved records at that time; the evidence
+  verifier re-ran `kube_investigator_verify` against the five persisted evidence IDs and created
   `verification`; the incident commander created `final-report`.
 - The selector-mismatch run ended `supported` with evidence IDs and digests cited, and the report
   states its fixture and read-only limitations.
 - A second live run with the healthy fixture ended `insufficient_evidence` / `undetermined`. The
   verifier reported matching selectors and the commander explicitly refused to call checkout
   healthy. This is the intended abstention behavior, not a silent failure.
+- A third Console run (`50e0f612-61e9-451c-b715-db1ba01445cf`) used the approved memory record
+  `957b036c-b8bb-4fbc-9a5b-d3a7c472276e` from reviewer `saikat`, published to the self-hosted
+  `k8s-memory` room as document `300b744b-02d8-4e48-9956-2bd7eee241e9`. The memory researcher found
+  it, created `memory-context`, cited the record, reviewer, approval date, expiry, and the
+  fixture-vs-live difference, and explicitly marked it a historical lead, never evidence. The run
+  ended with `evidence-summary`, a passing `verification`, and `final-report`.
+- That live memory run exposed a provenance gap: the MCP lead payload omitted source evidence and
+  message IDs. `HistoricalLead` now includes the source investigation, trace, evidence IDs, message
+  IDs, and content hash, and the rendered historical context includes them; a live MCP search
+  returned all five evidence IDs and five message IDs for the approved record.
 - A Console Mattermost bridge (`0907b3e3-371b-4bf6-ae11-08170b2b7975`) was created and a new
   incident room (`e6f091c0-66ad-4ba9-a2b4-8cfa0ebe4f1f`) was bridged to it. Console reports the
   room's external channel URL and six agents plus the human member; the Mattermost channel

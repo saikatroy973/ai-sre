@@ -38,8 +38,17 @@ Implemented and verified live through **Switch Console**, the mandatory live age
   and a supported `final-report` from the commander. A second live healthy-fixture run produced
   `insufficient_evidence` / `undetermined`; the verifier reported matching selectors and the
   commander explicitly refused to call the service healthy.
+- A third live Console run performed the memory acceptance test: record
+  `957b036c-b8bb-4fbc-9a5b-d3a7c472276e` was approved by `saikat`, published to the self-hosted
+  `k8s-memory` room as document `300b744b-02d8-4e48-9956-2bd7eee241e9`, and retrieved in Console
+  room `50e0f612-61e9-451c-b715-db1ba01445cf`. The memory researcher created `memory-context`,
+  cited the record, reviewer, approval date, expiry, and fixture-vs-live difference, and marked it
+  a historical lead, never evidence. The run ended with `evidence-summary`, passing `verification`,
+  and `final-report`.
 - Composed Switch Incident Memory: human approval, provenance, tenant/cluster/namespace scope,
-  expiry, superseding, integrity hashes, and untrusted-data rendering.
+  expiry, superseding, integrity hashes, and untrusted-data rendering. The live memory run exposed
+  that the lead payload omitted evidence/message IDs; `HistoricalLead` now returns the source
+  investigation, trace, evidence IDs, message IDs, and content hash.
 - A read-only Switch Trust/ROI client (`switch trust status|publish`, `switch roi`) that
   discovers tenant/workspace from the API key, reads evaluation health, guardrail policies, and
   cost data, and records a snapshot in the self-hosted or Console `k8s-governance` room. Errors are
@@ -483,6 +492,15 @@ Pass requires:
 - no claim that history proves the current cause;
 - no cross-namespace leakage.
 
+Verified live on 2026-11-04: approved record `957b036c-b8bb-4fbc-9a5b-d3a7c472276e`
+(reviewer `saikat`, expires 2027-02-02) was published to the self-hosted `k8s-memory` room as
+document `300b744b-02d8-4e48-9956-2bd7eee241e9` and retrieved by the Console memory researcher in
+room `50e0f612-61e9-451c-b715-db1ba01445cf`. The researcher cited the record, reviewer, approval
+date, expiry, and the fixture-vs-live difference, and marked it a historical lead, never evidence.
+The run also exposed that the MCP lead payload omitted source evidence/message IDs; the lead model
+and rendered context now include the investigation, trace, evidence IDs, message IDs, and content
+hash.
+
 ---
 
 ## 8. Switch Trust plan
@@ -818,6 +836,10 @@ Every episode must show a Switch surface and a working artifact. No episode is â
 - [x] Add telemetry analyst and change analyst.
 - [x] Add memory researcher.
 - [x] Create memory room documents and promotion workflow.
+- [x] Run the live memory acceptance test: approved record, published document, Console recall,
+  citation, explicit difference, and historical-lead-only handling.
+- [x] Include source evidence/message IDs, trace, investigation, and content hash in retrieved
+  memory leads.
 - [ ] Add the semantic index only if documents are insufficient.
 - [x] Test memory poisoning, stale memory, and cross-namespace retrieval.
 - [ ] Add ROI model pricing and caps beyond the read-only client.
@@ -826,7 +848,8 @@ Every episode must show a Switch surface and a working artifact. No episode is â
 
 - [x] Add a bounded concurrency cap (synchronous API/CLI path).
 - [x] Add a durable local SQLite incident queue with `queue add|list|run`.
-- [x] Add worker IDs, leases, expired-lease recovery, and a two-worker no-double-claim test.
+- [x] Add worker IDs, leases, expired-lease recovery, stale-worker guards, and 2-worker plus
+  30-job/4-worker claim-and-complete tests.
 - [ ] Replace the single-host SQLite queue with a distributed cross-host task ledger.
 - [ ] Load-test concurrent rooms.
 - [ ] Kill/restart test with a Console-managed agent.
@@ -852,7 +875,9 @@ Every episode must show a Switch surface and a working artifact. No episode is â
 
 - Selector mismatch produces a supported report with citations.
 - Healthy and ambiguous scenarios abstain.
-- Memory recall cites an approved incident and names a difference.
+- Memory recall cites an approved incident and names a difference. Verified live for record
+  `957b036c-â€¦` in Console room `50e0f612-â€¦`; the researcher marked it a historical lead, never
+  evidence.
 - A fabricated evidence ID cannot produce a supported report.
 - A missing or truncated read produces `partial`, not a guess.
 
