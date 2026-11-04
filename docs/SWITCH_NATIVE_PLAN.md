@@ -830,6 +830,7 @@ Every episode must show a Switch surface and a working artifact. No episode is â
 - [Switch Console and runtime](https://docs.switchagents.ai/switch-rooms/internals/switch-console.md)
 - [Agent protocol](https://docs.switchagents.ai/switch-rooms/internals/agent-protocol.md)
 - [Switch Trust](https://docs.switchagents.ai/switch-trust/index.md)
+- [Switch Trust API reference](https://docs.switchagents.ai/switch-trust/api-reference/index.md)
 - [Switch ROI](https://docs.switchagents.ai/switch-trust/cost/index.md)
 - [Switch Trust CLI](https://docs.switchagents.ai/switch-trust-cli/index.md)
 - [Switch Trust MCP](https://docs.switchagents.ai/switch-trust/mcp/index.md)

@@ -74,6 +74,17 @@ def summary_handler(request):
                 "total_count": 1,
             }
         )
+    if path.endswith("/outcomes"):
+        return response(
+            {
+                "ok": 10,
+                "alerted": 1,
+                "blocked": 2,
+                "redacted": 3,
+                "errored": 0,
+                "total": 16,
+            }
+        )
     if path.startswith("/eval/agent-evaluation-summary/"):
         assert request.url.params["agent_id"] == "agent-1"
         return response(
@@ -162,6 +173,8 @@ def test_governance_summary_uses_read_only_endpoints_and_keeps_scope():
     assert result["guardrails"]["policies"] == [
         {"id": "policy-1", "name": "Kubernetes investigator baseline"}
     ]
+    assert result["guardrails"]["outcomes"]["blocked"] == 2
+    assert result["guardrails"]["outcomes"]["total"] == 16
     assert result["evaluations"][0]["score"] == 0.92
     assert "advisory" in result
     assert "do not stop spending" in result["advisory"]
@@ -237,6 +250,7 @@ def test_governance_document_states_the_limits_of_the_snapshot():
     assert "Tenant: tenant-1" in rendered
     assert "Workspace: workspace-1" in rendered
     assert "agent-1: score=0.92" in rendered
+    assert "Outcomes: ok=10, alerted=1, blocked=2" in rendered
     assert "does not stop spending" in rendered
     assert "does not claim that a gate passed" in rendered
 

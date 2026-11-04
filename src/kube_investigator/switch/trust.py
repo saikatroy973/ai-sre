@@ -232,6 +232,10 @@ class TrustClient:
             f"/workspaces/{quote(workspace, safe='')}",
             params={"page_size": 100},
         )
+        outcomes = self._get(
+            f"/aispm-llm-interactions-dash/tenants/{quote(tenant, safe='')}"
+            f"/workspaces/{quote(workspace, safe='')}/outcomes"
+        )
         evaluations = [self.evaluation_summary(agent_id) for agent_id in agent_ids]
         policy_items = policies.get("items") if isinstance(policies.get("items"), list) else []
         return {
@@ -255,6 +259,10 @@ class TrustClient:
                     for item in policy_items
                     if isinstance(item, dict)
                 ],
+                "outcomes": {
+                    key: outcomes.get(key)
+                    for key in ("ok", "alerted", "blocked", "redacted", "errored", "total")
+                },
             },
             "evaluations": evaluations,
             "advisory": (
@@ -318,6 +326,14 @@ def render_governance_summary(summary: dict[str, Any]) -> str:
         "## Guardrails",
         f"- Policies: {guardrails.get('policy_count')}",
     ]
+    outcomes = guardrails.get("outcomes") or {}
+    lines.append(
+        "- Outcomes: "
+        + ", ".join(
+            f"{key}={outcomes.get(key)}"
+            for key in ("ok", "alerted", "blocked", "redacted", "errored", "total")
+        )
+    )
     for policy in guardrails.get("policies", []):
         lines.append(f"- {policy.get('name')} ({policy.get('id')})")
     lines.extend(["", "## Evaluations"])
