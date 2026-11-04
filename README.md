@@ -329,8 +329,17 @@ CodeScan action and the local CLI scan are separate artifacts.
 The live gate currently passes at `high` with 0 failing findings, but only because the reviewed
 `gpt-6-luna` model left Trust's 3-model inventory; the historical Critical finding is retained in
 `docs/TRUST_MODEL_REVIEW.md`, and no allowlist or gate suppression was added. The supplied OpenAI
-key also returns `429 credit_balance_exhausted`, so the provider preflight correctly blocks the
-AI scan rather than reporting a static-only run as complete.
+key returns `429 credit_balance_exhausted`, so the provider preflight blocks that pinned-action
+path rather than reporting a static-only run as complete.
+
+The pinned action also needs a directly billable provider key. For OpenCode Go,
+`.github/workflows/switch-trust-opencode.yml` runs the same scanner image through a local
+OpenAI-compatible proxy (`scripts/opencode_proxy.py`) that adds the OpenCode session header and
+uses `deepseek-v4.1-flash`. GitHub Actions
+[run 41893473483](https://github.com/saikatroy973/kube-investigator/actions/runs/41893473483)
+completed the AI scan in 4m16s: 2 libraries, 2 organizations, 6 MCP servers, 0 secrets, and no
+secret findings; the findings gate passed. The workflow is manual because it downloads a large
+scanner image and uses a paid provider.
 
 
 ### Switch environment
@@ -570,8 +579,8 @@ Not yet implemented or not yet verified:
 - The reviewed `gpt-6-luna` Critical model-evaluation findings left Trust's current 3-model
   inventory after the live profile changed to `claude-haiku-5-5`; this is an inventory-retention
   effect, not remediation. `claude-haiku-5-5` has no Trust evaluation yet, and there is no
-  owner/expiry exception workflow. The MCP AI scanner stage also did not complete, and the
-  supplied OpenAI key is out of credits.
+  owner/expiry exception workflow. The pinned action's default provider path did not complete its
+  MCP AI stage; the OpenCode Go path did, and the supplied OpenAI key is out of credits.
 - The incident queue is multi-worker on one host with worker IDs, leases, stale-worker guards, and
   expired-lease recovery, but it is not a distributed cross-host queue. The 10-concurrent-incident
   and crash/restart production gate has not been run.

@@ -114,6 +114,11 @@ Verified live against the provisioned Trust workspace:
   static inventory uploaded, test workflow passed. GitHub reported that the MCP AI scanner did
   not complete because the model provider was unavailable or rate limiting; AI-only inventory
   may therefore be incomplete.
+- The OpenCode Go AI CodeScan workflow (`switch-trust-opencode.yml`) ran the same scanner image
+  through `scripts/opencode_proxy.py` with `deepseek-v4.1-flash`. GitHub run `41893473483`
+  completed in 4m16s with a completed AI stage: 2 libraries, 2 organizations, 6 MCP servers,
+  0 secrets, and a passing findings gate. This path uses `OPENCODE_GO_API_KEY` and is manual
+  because it downloads a large scanner image and uses a paid provider.
 - The deterministic eval harness was exposed through a temporary Cloudflare tunnel and registered
   as Trust agent `agn_0b9ae0a09ef8cf6df36a96d572ae0c9a` with a `generic_http` endpoint. LLM01
   prompt injection, LLM02 PII leakage, and LLM02 secret leakage assignments were created. The PII
@@ -142,7 +147,8 @@ Not yet verified or not implemented:
 
 - No successful redacted model response or nonzero ROI recommendation has been demonstrated. The
   live ROI result is real but tiny (`$0.0001339`); it is cost telemetry, not an optimization
-  recommendation. The MCP AI scanner stage did not complete.
+  recommendation. The pinned action's default provider path did not complete its MCP AI stage;
+  the OpenCode Go path did.
 - Trust OTel is telemetry only and does not enforce guardrails. The SDK gateway recorded block and
   redact outcomes, but the provider keys have no credits, so end-to-end redacted content and a
   successful model response through the gateway remain unverified.
@@ -167,7 +173,7 @@ Not yet verified or not implemented:
 | 3. Live traffic / OTel | Pass | 6 LangChain/OpenAI interactions with prompts, tokens, latency, and reported cost; full `/agent/otel/v1/traces` URL required; new model unpriced |
 | 4. ROI | Partial | Nonzero `$0.0001339` MTD cost and 2 ROI agents; no optimization recommendation from 6 interactions |
 | 5. Guardrails | Partial | SDK outcomes `blocked=2, redacted=1, errored=2`; no successful redacted provider response because keys have no credits |
-| 6. CI gates | Pass (current) | Provider preflight fails closed on `429`; gate initially failed on 2 Critical findings, which were reviewed and retained after the model profile changed |
+| 6. CI gates | Pass (current) | Provider preflight fails closed on `429`; OpenCode Go AI CodeScan run `41893473483` completed and the gate passed; historical 2 Critical findings were reviewed and retained |
 | 7. Deployment unification | Pass | Console is the mandatory live runtime; the self-hosted protocol stack is an optional test harness |
 | 8. Collaboration bridges | Pass | Console Mattermost bridge; channel contains 10 mirrored investigation messages |
 | 9. Live Kubernetes / Scale | Partial | Live `kind-imesh` read abstained as designed; Scale Agentex/SGP has no credentials and is not deployed |
@@ -827,6 +833,8 @@ Every episode must show a Switch surface and a working artifact. No episode is â
 - [x] Add Trust CodeScan to CI and run the pinned scanner image against a clean checkout.
 - [x] Run the GitHub CodeScan Action on a GitHub-hosted runner (static inventory; AI scanner
   incomplete because of provider availability).
+- [x] Add the optional OpenCode Go AI CodeScan workflow and complete the AI stage in GitHub
+  Actions run `41893473483` (2 libraries, 2 organizations, 6 MCP servers, 0 secrets; gate passed).
 - [x] Create the deterministic HTTP evaluation harness (`eval_harness.py`) with guardrails and
   register it as a Trust `generic_http` agent endpoint.
 - [x] Add a `switch trust scan` wrapper around the Switch Trust CLI.
@@ -944,7 +952,8 @@ Every episode must show a Switch surface and a working artifact. No episode is â
 | Trust Live traffic | Pass | OTel LangChain/OpenAI: 6 interactions, prompts, tokens, latency, `$0.0001339` cost |
 | Trust findings gate | Pass (current) | Historical 2 Critical `gpt-6-luna` findings reviewed; model left the 3-model inventory after the profile switch; gate passes on 1 Informational |
 | Model-evaluation review | Pass | `docs/TRUST_MODEL_REVIEW.md`; `claude-haiku-5-5` remains provisional (missing evaluation) |
-| Incomplete AI scan cannot pass | Pass | Provider preflight fails closed on `429 credit_balance_exhausted` |
+| Incomplete AI scan cannot pass | Pass | Provider preflight fails closed on `429`; the OpenCode job also fails if the scanner reports an incomplete AI stage |
+| AI CodeScan through OpenCode Go | Pass | Run `41893473483`; 4m16s; AI stage complete; 2 libraries, 2 organizations, 6 MCP servers, 0 secrets |
 | Nonzero ROI analysis | Partial | Nonzero cost telemetry; no ROI recommendation or optimization |
 | No write/exec/secret tools | Pass (tool surface) | MCP tool allowlist; no OS sandbox |
 | Multi-worker queue claims | Pass (single host) | Lease recovery, stale-worker guard, 2-worker and 30-job/4-worker no-double-claim tests |
