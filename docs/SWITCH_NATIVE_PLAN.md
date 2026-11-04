@@ -65,14 +65,14 @@ Implemented and verified live through **Switch Console**, the mandatory live age
   library documents. `switch console incident` attaches it and links the new room to
   `k8s-memory`, `k8s-change`, and `k8s-governance`.
 - A durable local SQLite incident queue (`queue add|list|run`) for the protocol/API path, with
-  worker IDs, leases, expired-lease recovery, stale-worker completion guards, and a two-worker
-  claim test.
+  worker IDs, leases, expired-lease recovery, stale-worker completion guards, and 2-worker and
+  30-job/4-worker claim-and-complete tests.
 - Optional OTel spans for collection, reasoning, and verification.
 - A deterministic protocol-level harness and local Compose stack for tests and CI. It is not the
   live Console runtime.
 
 Offline validation: `ruff check .`, `ruff format --check .`, and the full pytest suite pass
-(232 tests). The Switch protocol and Console API tests use an in-memory fake and
+(233 tests). The Switch protocol and Console API tests use an in-memory fake and
 `httpx.MockTransport`; the repository's test configuration forbids real sockets.
 
 Verified live for the optional self-hosted collaboration profile:
@@ -886,7 +886,7 @@ Every episode must show a Switch surface and a working artifact. No episode is â
 | Incomplete AI scan cannot pass | Pass | Provider preflight fails closed on `429 credit_balance_exhausted` |
 | Nonzero ROI analysis | Partial | Nonzero cost telemetry; no ROI recommendation or optimization |
 | No write/exec/secret tools | Pass (tool surface) | MCP tool allowlist; no OS sandbox |
-| Multi-worker queue claims | Pass (single host) | Lease recovery, stale-worker completion guard, two-worker no-double-claim test |
+| Multi-worker queue claims | Pass (single host) | Lease recovery, stale-worker guard, 2-worker and 30-job/4-worker no-double-claim tests |
 | 10 concurrent incidents / crash restart | Not run | Requires a Console multi-room load and restart drill |
 | Distributed queue / semantic index / Scale hosting | Not implemented | Documented external gaps |
 

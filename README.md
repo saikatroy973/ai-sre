@@ -341,9 +341,10 @@ A failed job is visible as `failed` with its sanitized error; the worker does no
 it. `queue retry` returns it to pending. Each worker claims with a generated worker ID and a
 lease; on startup it recovers jobs whose lease expired, and completion/failure is guarded by the
 claiming worker ID so a stale worker cannot overwrite a recovered job. A concurrency test runs two
-workers against one SQLite queue and asserts that no job is claimed twice. This is still a
-single-host SQLite queue: it is not a distributed, cross-host task ledger. The queue uses the same
-configured adapters and the same fail-closed Switch policy as `investigate`.
+workers against one SQLite queue and asserts that no job is claimed twice; a second test runs four
+workers over 30 jobs and completes every job exactly once. This is still a single-host SQLite
+queue: it is not a distributed, cross-host task ledger. The queue uses the same configured
+adapters and the same fail-closed Switch policy as `investigate`.
 
 
 ### Optional OpenTelemetry
