@@ -21,9 +21,9 @@ Implemented:
 
 ### Boundaries
 
-This is not deployed to Scale, Kubernetes, or a verified live Switch server. The default reasoner is deterministic. The roles run in one process and do not constitute security-isolated agents. SQLite persists records, but interrupted investigations are not automatically resumed. Admission limits are per-process, not distributed.
+This is not deployed to Scale or Kubernetes. The live path is a local Switch Console with six Console-managed OpenCode sessions. The offline deterministic harness still runs its roles in one process and is not a security boundary; it exists for tests and CI. SQLite persists records, but interrupted investigations are not automatically resumed. Admission limits are per-process, not distributed.
 
-SGP inference is an opt-in adapter, not Agentex orchestration, AgentOps tracing export, a full token-cost ledger, or an assertion of live integration success. No cloud resources or permissions have been created. No remediation tool exists. The Trust/ROI client and pinned CodeScan workflow are implemented and offline-tested, but no live Trust tenant or ROI result has been verified, and the CodeScan workflow does not yet block a release on findings. The local Switch 0.31.0 API, rooms, Gateway container, bootstrap, and two consecutive incident-room demos have been exercised; the optional Mattermost `collab` profile and Gateway UI have not.
+SGP inference is an opt-in adapter, not Agentex orchestration, AgentOps tracing export, a full token-cost ledger, or an assertion of live integration success. No cloud resources or permissions have been created. No remediation tool exists. The Trust/ROI client and pinned CodeScan workflow are implemented and offline-tested, but no live Trust tenant or ROI result has been verified, and the CodeScan workflow does not yet block a release on findings. The local Switch Console path has created six managed agents, core rooms, an incident room, and a completed cited investigation through Switch tools and the read-only MCP server; the optional Mattermost `collab` profile and a bridged messaging app have not been exercised.
 
 ## Milestone 2: broaden the investigation team
 

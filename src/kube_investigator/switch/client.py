@@ -278,6 +278,39 @@ class RoomSession:
             connection_id=self.connection_id,
         )
 
+    def list_references(self) -> dict[str, Any]:
+        result = self.client.operation(
+            self.agent_name,
+            "list_references",
+            {},
+            connection_id=self.connection_id,
+        )
+        if not isinstance(result, dict):
+            raise SwitchError("Switch returned an invalid room resource list")
+        return result
+
+    def list_roles(self) -> list[dict[str, Any]]:
+        result = self.client.operation(
+            self.agent_name,
+            "list_roles",
+            {},
+            connection_id=self.connection_id,
+        )
+        if not isinstance(result, list):
+            raise SwitchError("Switch returned an invalid room role list")
+        return [role for role in result if isinstance(role, dict)]
+
+    def load_documents(self, document_ids: list[str]) -> list[dict[str, Any]]:
+        result = self.client.operation(
+            self.agent_name,
+            "load_internal_documents",
+            {"ids": document_ids},
+            connection_id=self.connection_id,
+        )
+        if not isinstance(result, list):
+            raise SwitchError("Switch returned an invalid room document response")
+        return [document for document in result if isinstance(document, dict)]
+
     def read_context(self, *, limit: int = 50) -> dict[str, Any]:
         result = self.client.operation(
             self.agent_name,

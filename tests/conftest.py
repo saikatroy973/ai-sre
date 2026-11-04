@@ -40,6 +40,11 @@ def offline_environment(monkeypatch):
         "INVESTIGATOR_TRUST_TENANT_ID",
         "INVESTIGATOR_TRUST_WORKSPACE_ID",
         "INVESTIGATOR_TRUST_TIMEOUT_SECONDS",
+        "INVESTIGATOR_CONSOLE_SERVER_URL",
+        "INVESTIGATOR_CONSOLE_EMAIL",
+        "INVESTIGATOR_CONSOLE_PASSWORD",
+        "INVESTIGATOR_CONSOLE_ENV_FILE",
+        "INVESTIGATOR_CONSOLE_TIMEOUT_SECONDS",
     ):
         monkeypatch.delenv(variable, raising=False)
 

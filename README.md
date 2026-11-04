@@ -38,23 +38,79 @@ The healthy and ambiguous scenarios intentionally return `insufficient_evidence`
 inventing a root cause. CLI success means a report was produced; inspect `report.outcome` to
 decide whether a diagnosis was supported.
 
-## Switch-native quick start
+## Switch Console quick start (mandatory live path)
 
-Docker is required for the local Switch stack. The pinned images are
+Live investigations run through **Switch Console** on a Console-managed local server. The six
+agents are Console-managed OpenCode agents; Switch supplies their room tools, and this repository
+supplies the read-only Kubernetes MCP tools. The deterministic Python coordinator is an offline
+test harness, not the live agent runtime.
+
+Prerequisites:
+
+- Switch Console is installed and running with a local server and an online machine.
+- The OpenCode provider is installed and signed in on that machine.
+- The repository venv exists (`.venv/bin/python -m kube_investigator.mcp_server`).
+- Console admin credentials are available through `INVESTIGATOR_CONSOLE_SERVER_URL`,
+  `INVESTIGATOR_CONSOLE_EMAIL`, and `INVESTIGATOR_CONSOLE_PASSWORD`, or through the local
+  Console server env file.
+
+```sh
+# Show the Console server, machine, agents, and rooms.
+kube-investigator switch console status
+
+# Create or verify the six Console-managed agents and the four core rooms.
+kube-investigator switch console setup
+
+# Create one incident room from the template and post the commander kickoff.
+kube-investigator switch console incident --scenario selector-mismatch
+
+# Inspect the transcript inside Switch Console. The commander dispatches the
+# specialists, the verifier checks the cited evidence, and the final-report
+# room document is published.
+```
+
+What the Console path creates:
+
+- Six Console-managed agents: `incident-commander`, `cluster-investigator`,
+  `telemetry-analyst`, `change-analyst`, `memory-researcher`, and `evidence-verifier`.
+- The four core rooms: `k8s-incidents`, `k8s-change`, `k8s-memory`, and `k8s-governance`.
+- One incident room named `incident-<id>-<namespace>-<service>`, with the template documents
+  `incident-brief`, `evidence-standard`, `report-template`, and `memory-policy`.
+- A kickoff addressed to `incident-commander`. Switch Console starts the session; the agent uses
+  the Switch tools `read_context`, `load_internal_documents`, `send_targeted_message`,
+  `post_message`, and `create_room_document`.
+- `evidence-summary` from the cluster investigator, `verification` from the evidence verifier, and
+  `final-report` from the incident commander. `memory-context` is created only when approved
+  history exists.
+
+The MCP server is declared in `opencode.json` and is scoped to read-only evidence. It has no
+Switch write access and no cluster mutation path. Switch Console agents see the room and its
+history in Console, not only in a terminal.
+
+The local Console demo runs the OpenCode agents with Auto mode on, because there is no separate
+human approval channel in this setup. OpenCode Auto mode approves every request; the MCP tools are
+read-only, but that is not an OS sandbox for the agent's provider tools. For a shared or production
+deployment, run each agent under a dedicated OS account or container with read-only mounts and
+review Console's Auto mode setting.
+
+### Deterministic protocol-level smoke test (optional)
+
+The self-hosted stack is useful for testing the agent-protocol client without Console. It is
+**not** the live Console runtime. Docker is required; the pinned images are
 `ghcr.io/sandbox-quantum/switch-core:0.31.0` and `gateway:0.31.0`.
 
 ```sh
 # Start Postgres, switch-core, and the Gateway (API :18000, Gateway :13000).
 kube-investigator switch up
 
-# Wait for the public health endpoint, then register the six agent identities.
+# Wait for the public health endpoint, then register the six protocol identities.
 curl -fsS http://127.0.0.1:18000/health
 export INVESTIGATOR_SWITCH_REGISTRATION_TOKEN="$(
   sed -n 's/^AGENT_REGISTRATION_TOKEN=//p' .data/switch/.env
 )"
 kube-investigator switch bootstrap
 
-# Run the fixture investigation through a real Switch room.
+# Run the deterministic fixture investigation through a real Switch room.
 kube-investigator switch-demo
 
 # Inspect liveness and the core room IDs.
@@ -67,20 +123,10 @@ registration, and Gateway credentials. Re-running it reuses that file. Use `--no
 only the API and rooms are needed, or `--api-port`, `--gateway-port`, and `--postgres-port` to
 change the published ports.
 
-What the run creates:
-
-- One internal-only incident room named `incident-<id>-<namespace>-<service>`.
-- The four core rooms: `k8s-incidents`, `k8s-change`, `k8s-memory`, `k8s-governance`.
-- Six Switch agent identities with one API key each, stored locally in
-  `.data/switch/agents.json` (mode 0600; keys are never printed or persisted in investigations).
-- Room documents: `incident-brief`, `evidence-standard`, `report-template`, `memory-policy`,
-  `evidence-summary`, `verification`, and `final-report` (plus `memory-context` when approved
-  history matches).
-- Targeted, structured handoffs with trace/span IDs. The `telemetry-analyst` and
-  `change-analyst` explicitly abstain because no live telemetry or change source is configured.
-
-The local stack uses the upstream standalone compose definition copied to
-`deploy/switch/compose.yaml`. Rooms are internal-only; no Mattermost/Slack bridge is started.
+The protocol harness creates six Switch agent identities with one API key each, stored locally in
+`.data/switch/agents.json` (mode 0600), one incident room per run, and targeted handoffs with
+trace/span IDs. It is covered by offline tests and is useful for CI, but it is not a substitute
+for Console-managed sessions.
 
 ### Approved incident memory
 
@@ -132,12 +178,17 @@ secrets the workflow records an explicit skip; it never reports a skipped scan a
 
 ### Switch environment
 
-`Settings.from_env()` defaults to `INVESTIGATOR_SWITCH_MODE=required`, so `investigate` and the
-HTTP API fail closed unless Switch is reachable and the six agents are registered. The direct
-`Settings()` constructor defaults to `off`, which keeps offline tests and `demo` isolated.
-`switch-demo` always uses fixture Kubernetes data but requires a real Switch runtime.
+`switch console` reads Console admin credentials from `INVESTIGATOR_CONSOLE_SERVER_URL`,
+`INVESTIGATOR_CONSOLE_EMAIL`, and `INVESTIGATOR_CONSOLE_PASSWORD`, or from the local Console
+server env file named by `INVESTIGATOR_CONSOLE_ENV_FILE`. The password is never printed.
 
-See `.env.example` for every Switch setting.
+`Settings.from_env()` defaults to `INVESTIGATOR_SWITCH_MODE=required` for the protocol/API path,
+so `investigate` and the HTTP API fail closed unless Switch is reachable and the six protocol
+agents are registered. The direct `Settings()` constructor defaults to `off`, which keeps offline
+tests and `demo` isolated. `switch-demo` always uses fixture Kubernetes data but requires a real
+Switch runtime; it is the deterministic protocol smoke test, not the Console-managed agent path.
+
+See `.env.example` for every Switch and Console setting.
 
 ## HTTP API
 
@@ -222,41 +273,52 @@ Reads are bounded and time-limited. Truncated lists, missing objects, authorizat
 
 Implemented and tested offline:
 
-- Six-agent registration through the Switch agent protocol, per-identity API keys, and core rooms
-  created from Switch room templates.
-- One incident room per investigation, targeted handoffs, room documents, and evidence/report
-  publication.
+- Switch Console management API client and `switch console status|setup|incident` commands.
+- Six Console-managed agent definitions with role-specific instructions, created on an online
+  Console machine and registered into Switch rooms.
+- A read-only MCP server (`python -m kube_investigator.mcp_server`) with evidence collection,
+  persisted-investigation readback, independent verification, scoped memory lookup, and explicit
+  source-abstention tools.
 - Human-approved incident memory with provenance, scope, expiry, superseding, integrity hashes,
   and prompt-injection-resistant rendering.
 - A read-only Switch Trust/ROI client with sanitized errors, key-identity scope discovery,
   evaluation health, guardrail-policy, and cost summaries; `switch trust publish` records a
   snapshot in `k8s-governance`. A pinned CodeScan CI workflow is included.
-- A local Docker Compose definition pinned to published Switch `0.31.0` images.
+- A deterministic agent-protocol harness and a local Docker Compose definition pinned to Switch
+  `0.31.0` for offline and protocol-level tests.
 
-Verified live against a local Switch 0.31.0 stack:
+Verified live through Switch Console:
+
+- `switch console setup` created or found all six Console-managed OpenCode agents on the online
+  Console machine and created `k8s-incidents`, `k8s-change`, `k8s-memory`, and `k8s-governance`.
+- `switch console incident` created a template incident room and the kickoff started the
+  Console-managed commander session.
+- The room transcript shows the commander dispatching `cluster-investigator`,
+  `telemetry-analyst`, `change-analyst`, and `memory-researcher` with Switch
+  `send_targeted_message`; each specialist used the `kube-investigator` MCP server.
+- The cluster investigator created `evidence-summary`; the telemetry and change analysts
+  explicitly abstained; the memory researcher found no approved records; the evidence verifier
+  re-ran `kube_investigator_verify` against the five persisted evidence IDs and created
+  `verification`; the incident commander created `final-report`.
+- The final outcome was `supported` for the fixture selector mismatch, with evidence IDs and
+  digests cited. The report states its fixture and read-only limitations.
+
+Verified live against the optional self-hosted Switch 0.31.0 protocol stack:
 
 - `switch up` started Postgres, switch-core, and the Gateway; `/health` returned `{"status":"ok"}`.
-- `switch bootstrap` registered all six identities and created `k8s-incidents`, `k8s-change`,
-  `k8s-memory`, and `k8s-governance`.
-- `switch-demo` completed two consecutive investigations in fresh incident rooms. Handoffs were
-  posted as targeted messages from the real sender identities. The four template documents were
-  present, and `evidence-summary`, `verification`, and `final-report` were created by the
-  specialist identities that own them.
-- The exclusive `incident-commander` and `evidence-verifier` roles were assumed before handoff
-  and released on session close, so a second run did not hit a stale role lease.
-- Switch's admin client still posts its normal onboarding greeting/warning in a new room; the
-  warning is about the initial greeting, not a missed handoff. The role is held before work is
-  dispatched.
+- `switch bootstrap` registered six protocol identities; `switch-demo` completed two consecutive
+  investigations with targeted handoffs and specialist-owned documents.
+- The exclusive commander and verifier roles were assumed before handoff and released on session
+  close.
 
 Not yet implemented or not yet verified:
 
-- The Compose stack's optional Mattermost `collab` profile and the Gateway UI were not exercised;
-  the local run used the API, rooms, and the Gateway container only. No external messaging bridge
-  is configured.
 - The Trust and ROI client is tested against mocked HTTP responses, not a provisioned Trust
   tenant. No claim in this README should be read as a live Trust or ROI result. Trust Live
   traffic, SDK/OTel instrumentation, and a CI gate that blocks promotion on findings are not
   implemented; the CodeScan workflow only records findings.
+- The optional Mattermost `collab` profile and a bridged messaging app were not exercised. The
+  Console live path uses internal-only rooms.
 - No durable incident queue, semantic memory index, live telemetry/change source, Scale Agentex
   hosting, or remediation executor exists. Roles are room briefings, not Kubernetes
   authorization or a security boundary.

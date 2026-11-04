@@ -61,6 +61,8 @@ class SwitchRuntime(Protocol):
 
     def ensure_core_rooms(self) -> dict[str, str]: ...
 
+    def list_rooms(self) -> list[dict[str, Any]]: ...
+
     def create_incident_room(self, investigation: Investigation) -> SwitchRoom: ...
 
     def open_session(self, agent_name: str, room_id: str) -> Any: ...
@@ -168,6 +170,11 @@ class HttpSwitchRuntime:
                 raise SwitchError(f"Switch did not create the {key} room")
             self._rooms[key] = room_id
         return dict(self._rooms)
+
+    def list_rooms(self) -> list[dict[str, Any]]:
+        commander = self._agent_name("incident-commander")
+        result = self._client.operation(commander, "list_rooms", {})
+        return [room for room in result or [] if isinstance(room, dict)]
 
     def create_incident_room(self, investigation: Investigation) -> SwitchRoom:
         self.ensure_core_rooms()
@@ -398,6 +405,56 @@ class FakeRoomSession:
         self.runtime._guard("release_role")
         self._release_roles()
 
+    def list_references(self) -> dict[str, Any]:
+        self.runtime._guard("list_references")
+        return {
+            "reference_types": {},
+            "references": [],
+            "documents": [
+                {
+                    "id": document["id"],
+                    "name": document["name"],
+                    "description": document["description"],
+                    "instructions": document["instructions"],
+                    "created_by_agent_id": document["creator"],
+                }
+                for document in self.room.docs.values()
+            ],
+            "packages": [],
+            "linked_rooms": [
+                {"target_room_id": target_room_id} for _, target_room_id in self.room.links
+            ],
+        }
+
+    def list_roles(self) -> list[dict[str, Any]]:
+        self.runtime._guard("list_roles")
+        roles = []
+        for role in self.room.roles:
+            holder = self.room.role_holders.get(str(role.get("name")))
+            roles.append(
+                {
+                    "name": role.get("name"),
+                    "exclusive": bool(role.get("exclusive")),
+                    "held_by": [{"name": holder}] if holder else [],
+                }
+            )
+        return roles
+
+    def load_documents(self, document_ids: list[str]) -> list[dict[str, Any]]:
+        self.runtime._guard("load_documents")
+        by_id = {document["id"]: document for document in self.room.docs.values()}
+        try:
+            return [
+                {
+                    "id": document_id,
+                    "description": by_id[document_id]["description"],
+                    "content": by_id[document_id]["content"],
+                }
+                for document_id in document_ids
+            ]
+        except KeyError as exc:
+            raise SwitchError("Room document not found") from exc
+
     def read_context(self, *, limit: int = 50) -> dict[str, Any]:
         self.runtime._guard("read_context")
         return {
@@ -466,6 +523,17 @@ class FakeSwitchRuntime:
             if target and (incidents.id, target) not in incidents.links:
                 incidents.links.append((incidents.id, target))
         return dict(self._room_ids)
+
+    def list_rooms(self) -> list[dict[str, Any]]:
+        self._guard("list_rooms")
+        return [
+            {
+                "room_id": room.id,
+                "name": room.name,
+                "description": room.description,
+            }
+            for room in self.rooms.values()
+        ]
 
     def create_incident_room(self, investigation: Investigation) -> SwitchRoom:
         self._guard("create_incident_room")

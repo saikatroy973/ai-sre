@@ -106,6 +106,35 @@ def test_incident_template_normalizes_whitespace_in_the_question():
     assert "\t" not in brief["content"]
 
 
+def test_incident_kickoff_is_top_level_beside_the_room():
+    text = specs.incident_room_template(
+        room_name="incident-abc-shop-checkout",
+        incident_id="abc",
+        cluster="demo-cluster",
+        namespace="shop",
+        service="checkout",
+        deployment="checkout",
+        question="Why is checkout failing?",
+        kickoff="@incident-commander Start the read-only investigation.",
+    )
+    document = yaml.safe_load(text)
+    assert document["kickoff"].strip() == "@incident-commander Start the read-only investigation."
+    assert "kickoff" not in document["room"]
+
+
+def test_console_instructions_name_the_switch_tools_and_mcp_prefix():
+    for spec in specs.AGENTS:
+        text = specs.console_instructions(spec.name)
+        assert "send_targeted_message" in text
+        assert "kube-investigator" in text
+        assert "create_room_document" in text
+        assert "read-only" in text.lower()
+    assert "send_targeted_message" in specs.console_instructions("cluster-investigator")
+    assert "final-report" in specs.console_instructions("incident-commander")
+    assert "evidence-summary" in specs.console_instructions("cluster-investigator")
+    assert "verification" in specs.console_instructions("evidence-verifier")
+
+
 def test_individual_core_room_yaml_matches_the_group_definition():
     for key, name in specs.CORE_ROOMS.items():
         document = yaml.safe_load(specs.core_room_yaml(key))

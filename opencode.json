@@ -1,0 +1,19 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "permission": {
+    "kube-investigator_": "allow",
+    "kube-investigator_kube_investigator_health": "allow",
+    "kube-investigator_kube_investigator_run": "allow",
+    "kube-investigator_kube_investigator_get": "allow",
+    "kube-investigator_kube_investigator_verify": "allow",
+    "kube-investigator_kube_investigator_memory": "allow",
+    "kube-investigator_kube_investigator_source_status": "allow"
+  },
+  "mcp": {
+    "kube-investigator": {
+      "type": "local",
+      "command": [".venv/bin/python", "-m", "kube_investigator.mcp_server"],
+      "enabled": true
+    }
+  }
+}

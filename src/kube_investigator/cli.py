@@ -9,18 +9,32 @@ import sys
 from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from pydantic import ValidationError
 
 from kube_investigator.auth import Principal
 from kube_investigator.config import Settings
 from kube_investigator.coordinator import build_coordinator
-from kube_investigator.errors import InvestigatorError, NotFoundError, SwitchError
+from kube_investigator.errors import (
+    ConfigurationError,
+    InvestigatorError,
+    NotFoundError,
+    SwitchError,
+)
 from kube_investigator.models import Investigation, InvestigationRequest, utc_now
 from kube_investigator.storage import Store
+from kube_investigator.switch.console import ConsoleClient, ConsoleSettings
 from kube_investigator.switch.memory import MemoryStore
 from kube_investigator.switch.runtime import HttpSwitchRuntime, build_switch_runtime
+from kube_investigator.switch.specs import (
+    AGENTS,
+    CORE_ROOMS,
+    console_instructions,
+    core_room_template,
+    core_room_yaml,
+    incident_room_template,
+)
 from kube_investigator.switch.trust import (
     TrustClient,
     TrustSettings,
@@ -83,6 +97,39 @@ def parser() -> argparse.ArgumentParser:
     )
     bootstrap.add_argument("--state-dir", type=Path)
     bootstrap.add_argument("--json", action="store_true")
+
+    console = switch_commands.add_parser(
+        "console", help="Use the Switch Console-managed local server and agents"
+    )
+    console_commands = console.add_subparsers(dest="console_command", required=True)
+    console_status = console_commands.add_parser(
+        "status", help="Show Console controllers, agents, and rooms"
+    )
+    console_status.add_argument("--json", action="store_true")
+    console_setup = console_commands.add_parser(
+        "setup", help="Create or verify the six Console-managed agents and core rooms"
+    )
+    console_setup.add_argument("--directory", type=Path, default=Path.cwd())
+    console_setup.add_argument("--provider", default="opencode")
+    console_setup.add_argument("--controller-id")
+    console_setup.add_argument(
+        "--refresh", action="store_true", help="Update existing agent instructions"
+    )
+    console_setup.add_argument("--json", action="store_true")
+    console_incident = console_commands.add_parser(
+        "incident", help="Create a Console incident room and kick off the commander"
+    )
+    console_incident.add_argument("--namespace", default="shop")
+    console_incident.add_argument("--service", default="checkout")
+    console_incident.add_argument("--deployment", default="checkout")
+    console_incident.add_argument("--cluster", default="demo-cluster")
+    console_incident.add_argument("--question", default="Why is checkout failing?")
+    console_incident.add_argument(
+        "--scenario",
+        choices=("selector-mismatch", "healthy", "ambiguous"),
+        default="selector-mismatch",
+    )
+    console_incident.add_argument("--json", action="store_true")
 
     memory = switch_commands.add_parser("memory", help="Manage approved incident memory")
     memory_commands = memory.add_subparsers(dest="memory_command", required=True)
@@ -279,6 +326,8 @@ def _switch_command(args: argparse.Namespace) -> int:
         return _switch_status(args)
     if args.switch_command == "bootstrap":
         return _switch_bootstrap(args)
+    if args.switch_command == "console":
+        return _switch_console(args)
     if args.switch_command == "memory":
         return _switch_memory(args)
     if args.switch_command == "trust":
@@ -393,6 +442,191 @@ def _switch_bootstrap(args: argparse.Namespace) -> int:
         return 0
     finally:
         runtime.close()
+
+
+def _switch_console(args: argparse.Namespace) -> int:
+    settings = ConsoleSettings.from_env(required=True)
+    client = ConsoleClient(settings)
+    try:
+        if args.console_command == "status":
+            return _console_status(client, args)
+        if args.console_command == "setup":
+            return _console_setup(client, args)
+        if args.console_command == "incident":
+            return _console_incident(client, args)
+    finally:
+        client.close()
+    raise AssertionError("unreachable")
+
+
+def _console_status(client: ConsoleClient, args: argparse.Namespace) -> int:
+    controllers = client.controllers()
+    agents = client.agents()
+    rooms = client.rooms()
+    online = [item for item in controllers if item.get("state") == "online"]
+    payload = {
+        "console_url": client.settings.server_url,
+        "controllers": controllers,
+        "agents": agents,
+        "rooms": rooms,
+    }
+    if args.json:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+    print(f"Switch Console: {client.settings.server_url}")
+    print(f"Online machines: {len(online)}/{len(controllers)}")
+    for item in controllers:
+        print(f"- {item.get('name')} ({item.get('state')}) {item.get('id')}")
+    print(f"Console-managed agents: {len(agents)}")
+    for item in agents:
+        definition = item.get("definition") or {}
+        print(
+            f"- {item.get('name')} provider={definition.get('provider')} "
+            f"desired={item.get('desired_state')} id={item.get('agent_id')}"
+        )
+    print(f"Rooms: {len(rooms)}")
+    for item in rooms:
+        print(f"- {item.get('name')} {item.get('id') or item.get('room_id')}")
+    return 0
+
+
+def _console_setup(client: ConsoleClient, args: argparse.Namespace) -> int:
+    directory = args.directory.expanduser().resolve()
+    if not directory.is_dir():
+        raise ConfigurationError(f"Console agent directory does not exist: {directory}")
+    controllers = client.controllers()
+    if args.controller_id:
+        controller = next(
+            (item for item in controllers if item.get("id") == args.controller_id), None
+        )
+        if controller is None:
+            raise SwitchError("The requested Switch Console machine was not found")
+    else:
+        controller = next((item for item in controllers if item.get("state") == "online"), None)
+    if controller is None:
+        raise SwitchError("No online Switch Console machine is available")
+    if controller.get("state") != "online":
+        raise SwitchError("The selected Switch Console machine is not online")
+
+    existing = {str(item.get("name")): item for item in client.agents()}
+    created: dict[str, str] = {}
+    updated: list[str] = []
+    for spec in AGENTS:
+        instructions = console_instructions(spec.name)
+        current = existing.get(spec.name)
+        if current is None:
+            item = client.create_agent(
+                name=spec.name,
+                description=spec.description,
+                display_name=spec.display_name,
+                controller_id=str(controller["id"]),
+                provider=args.provider,
+                instructions=instructions,
+                directory=str(directory),
+            )
+            created[spec.name] = str(item["agent_id"])
+            continue
+        provider = (current.get("definition") or {}).get("provider")
+        if args.refresh and provider == args.provider:
+            client.update_agent(
+                str(current["agent_id"]),
+                instructions=instructions,
+                directory=str(directory),
+                provider=args.provider,
+            )
+            updated.append(spec.name)
+
+    room_names = {
+        str(item.get("name")): str(item.get("id") or item.get("room_id")) for item in client.rooms()
+    }
+    missing = [key for key, name in CORE_ROOMS.items() if name not in room_names]
+    if missing:
+        if len(missing) == len(CORE_ROOMS):
+            result = client.create_rooms_from_yaml(core_room_template())
+            for item in result.get("rooms", []):
+                if isinstance(item, dict) and item.get("room_name") and item.get("room_id"):
+                    room_names[str(item["room_name"])] = str(item["room_id"])
+        else:
+            for key in missing:
+                result = client.create_rooms_from_yaml(core_room_yaml(key))
+                room_id = result.get("room_id")
+                if isinstance(room_id, str) and room_id:
+                    room_names[CORE_ROOMS[key]] = room_id
+
+    payload = {
+        "console_url": client.settings.server_url,
+        "controller": {
+            "id": controller.get("id"),
+            "name": controller.get("name"),
+        },
+        "created_agents": created,
+        "updated_agents": updated,
+        "existing_agents": sorted(name for name in existing if name not in created),
+        "rooms": {key: room_names.get(name) for key, name in CORE_ROOMS.items()},
+        "directory": str(directory),
+    }
+    if args.json:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+    print(f"Console machine: {controller.get('name')} ({controller.get('id')})")
+    for name, agent_id in sorted(created.items()):
+        print(f"Created agent {name}: {agent_id}")
+    for name in updated:
+        print(f"Updated agent {name}")
+    for key, room_id in sorted(payload["rooms"].items()):
+        print(f"Room {key}: {room_id or 'not created'}")
+    print(f"Working directory: {directory}")
+    return 0
+
+
+def _console_incident(client: ConsoleClient, args: argparse.Namespace) -> int:
+    known = {str(item.get("name")) for item in client.agents()}
+    missing = [spec.name for spec in AGENTS if spec.name not in known]
+    if missing:
+        raise SwitchError(
+            "Console agents are missing; run `kube-investigator switch console setup` first: "
+            + ", ".join(missing)
+        )
+    incident_id = uuid4().hex[:8]
+    room_name = f"incident-{incident_id}-{args.namespace}-{args.service}"
+    kickoff = (
+        "@incident-commander Start the read-only investigation.\n\n"
+        f"Fixture scenario: {args.scenario}\n"
+        f"Target: cluster={args.cluster} namespace={args.namespace} "
+        f"service={args.service} deployment={args.deployment}\n"
+        f"Question: {args.question}\n\n"
+        "Read the incident brief and every room document. Dispatch the specialists, "
+        "use the kube-investigator MCP tools for evidence, and publish the final report. "
+        "No cluster changes."
+    )
+    template = incident_room_template(
+        room_name=room_name,
+        incident_id=incident_id,
+        cluster=args.cluster,
+        namespace=args.namespace,
+        service=args.service,
+        deployment=args.deployment,
+        question=args.question,
+        kickoff=kickoff,
+    )
+    result = client.create_rooms_from_yaml(template)
+    room_id = result.get("room_id")
+    if not isinstance(room_id, str) or not room_id:
+        raise SwitchError("Switch Console did not return an incident room id")
+    payload = {
+        "room_id": room_id,
+        "room_name": result.get("room_name") or room_name,
+        "incident_id": incident_id,
+        "scenario": args.scenario,
+        "console_url": client.settings.server_url,
+    }
+    if args.json:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        print(f"Switch Console incident room: {payload['room_name']} ({room_id})")
+        print(f"Scenario: {args.scenario}")
+        print("The kickoff addresses incident-commander; Console starts the session.")
+    return 0
 
 
 def _switch_trust(args: argparse.Namespace) -> int:

@@ -20,49 +20,50 @@ surfaces that this plan demonstrates.
 
 ## 0. Current implementation status
 
-Implemented in this repository and covered by offline tests:
+Implemented and verified live through **Switch Console**, the mandatory live agent runtime:
 
-- Six Switch agent identities (`incident-commander`, `cluster-investigator`,
-  `telemetry-analyst`, `change-analyst`, `memory-researcher`, `evidence-verifier`) registered
-  through the agent protocol, with per-identity API keys stored mode-0600.
-- Core rooms (`k8s-incidents`, `k8s-change`, `k8s-memory`, `k8s-governance`) and one
-  internal-only incident room per investigation, provisioned from Switch room YAML templates.
-- Room instructions, roles, and documents (`incident-brief`, `evidence-standard`,
-  `report-template`, `memory-policy`, `evidence-summary`, `verification`, `final-report`).
-- Every handoff posted as a targeted room message from the real sender identity, with trace and
-  span IDs. `telemetry-analyst` and `change-analyst` abstain explicitly when no source exists.
+- Six Console-managed OpenCode agents (`incident-commander`, `cluster-investigator`,
+  `telemetry-analyst`, `change-analyst`, `memory-researcher`, `evidence-verifier`) created on an
+  online Console machine with role-specific standing instructions.
+- Core rooms (`k8s-incidents`, `k8s-change`, `k8s-memory`, `k8s-governance`) and one internal-only
+  incident room per investigation, provisioned through the Console Gateway from Switch room YAML
+  templates.
+- A kickoff addressed to `incident-commander` starts the Console session. The commander dispatches
+  the specialists with Switch `send_targeted_message`; the specialists return targeted results.
+- The `kube-investigator` MCP server supplies the read-only Kubernetes evidence path. It collects
+  evidence, persists it, supports independent verification, searches approved memory, and returns
+  explicit abstentions for telemetry/change sources that are not configured.
+- The live run produced `evidence-summary` from the cluster investigator, explicit abstentions
+  from telemetry/change/memory, a passing `verification` from the verifier, and `final-report`
+  from the commander.
 - Composed Switch Incident Memory: human approval, provenance, tenant/cluster/namespace scope,
-  expiry, superseding, integrity hashes, and untrusted-data rendering. It is published to
-  `k8s-memory` before local indexing when Switch is required.
+  expiry, superseding, integrity hashes, and untrusted-data rendering.
 - A read-only Switch Trust/ROI client (`switch trust status|publish`, `switch roi`) that
   discovers tenant/workspace from the API key, reads evaluation health, guardrail policies, and
   cost data, and records a snapshot in `k8s-governance`. Errors are sanitized and the API key is
   never printed.
 - A pinned Switch Trust CodeScan workflow; it skips explicitly when its secrets are absent.
-- Local deployment scaffolding: `deploy/switch/compose.yaml` pinned to Switch `0.31.0`, plus
-  `kube-investigator switch up|down|status|bootstrap|memory ...` and `switch-demo`.
+- A deterministic protocol-level harness and local Compose stack for tests and CI. It is not the
+  live Console runtime.
 
 Offline validation: `ruff check .`, `ruff format --check .`, and the full pytest suite pass. The
-Switch protocol tests use an in-memory fake and `httpx.MockTransport`; the repository's test
-configuration forbids real sockets.
-
-Live local verification: `switch up` started the pinned Switch 0.31.0 API and Gateway on a local
-Docker Compose stack; `switch bootstrap` registered all six identities and created the four core
-rooms; `switch-demo` completed two consecutive investigations in fresh incident rooms. The room
-transcripts show targeted handoffs from the real sender identities, the four template documents,
-and specialist-created evidence/verification/report documents. The exclusive commander and
-verifier roles were assumed before dispatch and released when sessions closed.
+Switch protocol and Console API tests use an in-memory fake and `httpx.MockTransport`; the
+repository's test configuration forbids real sockets.
 
 Not yet verified or not implemented:
 
-- The optional Mattermost `collab` profile and Gateway UI have not been exercised; no external
-  messaging bridge is configured.
+- The optional Mattermost `collab` profile and a bridged messaging app have not been exercised;
+  the Console live path uses internal-only rooms.
 - Trust and ROI calls have not been run against a provisioned tenant; they are covered by mocked
   HTTP responses. Trust Live traffic, SDK/OTel instrumentation, and a promotion gate that blocks
   on findings are not implemented. The CodeScan workflow publishes findings; it does not fail a
   release by itself.
 - Durable queueing, semantic memory indexing, live telemetry/change sources, Scale Agentex
   hosting, and remediation execution are later phases.
+- The local Console demo uses OpenCode Auto mode because there is no separate human approval
+  channel. Auto mode approves every provider tool request. The MCP evidence tools are read-only,
+  but the demo is not an OS sandbox; a shared deployment needs dedicated OS accounts/containers
+  and a reviewed approval path.
 
 
 ---
@@ -84,6 +85,12 @@ External components are allowed only for what Switch does not document: Kubernet
 a durable task ledger, infrastructure-cost attribution, a semantic memory index, and workload
 identity. Those components must be called through a Switch room or a Switch Trust-controlled
 gateway. They cannot become a parallel collaboration plane.
+
+**Console is not optional.** Live agents run as Switch Console-managed sessions. The Console
+supplies the session, the Switch skill, and the room tools; this repository supplies only the
+read-only Kubernetes MCP tools. A Python process that speaks the agent protocol is a test
+harness, not the live runtime. The self-hosted protocol harness must never be presented as a
+Console demo.
 
 ---
 
@@ -676,19 +683,20 @@ Every episode must show a Switch surface and a working artifact. No episode is â
 
 ### Phase A: Switch foundation
 
-- [ ] Deploy Switch server and connect the messaging app.
-- [ ] Create Gateway users, API keys, machines, and workspace.
-- [ ] Create `#k8s-incidents`, `#k8s-change`, `#k8s-memory`, `#k8s-governance`.
-- [ ] Create incident room template and incident kit package.
-- [ ] Register the intake agent and three core agents.
-- [ ] Set addressing, Auto mode, Bypass, own process, tools, model, memory.
-- [ ] Run a human-only room walkthrough.
+- [x] Deploy Switch Console's managed local server (internal-only rooms; no messaging app).
+- [x] Create the Console machine, admin account, agent management, and workspace.
+- [x] Create `#k8s-incidents`, `#k8s-change`, `#k8s-memory`, `#k8s-governance`.
+- [x] Create the incident room template and role instructions.
+- [x] Create six Console-managed agents and invite them to the core rooms.
+- [x] Set addressing via Console defaults, Auto mode for the OpenCode provider, tools, and model.
+- [ ] Attach the incident kit as a Switch package (documents are created from the template now).
+- [ ] Run a human-only room walkthrough and record it.
 
 ### Phase B: evidence and trust
 
-- [ ] Build the namespace-scoped Kubernetes tool gateway.
-- [ ] Build evidence store and verifier.
-- [ ] Add Trust CodeScan to CI; scan the repository.
+- [x] Build the read-only Kubernetes MCP tool server (not a write gateway).
+- [x] Build evidence store and verifier.
+- [x] Add Trust CodeScan to CI; the repository scan still needs secrets and a run.
 - [ ] Create the HTTP evaluation harness.
 - [ ] Add Trust evaluations: OWASP, PII, secrets, grounding, citations.
 - [ ] Add the guardrail policy.
@@ -696,18 +704,19 @@ Every episode must show a Switch surface and a working artifact. No episode is â
 
 ### Phase C: memory and specialists
 
-- [ ] Add telemetry analyst and change analyst.
-- [ ] Add memory researcher.
-- [ ] Create memory room documents and promotion workflow.
+- [x] Add telemetry analyst and change analyst.
+- [x] Add memory researcher.
+- [x] Create memory room documents and promotion workflow.
 - [ ] Add the semantic index only if documents are insufficient.
-- [ ] Test memory poisoning, stale memory, and cross-namespace retrieval.
-- [ ] Add ROI model pricing and caps.
+- [x] Test memory poisoning, stale memory, and cross-namespace retrieval.
+- [ ] Add ROI model pricing and caps beyond the read-only client.
 
 ### Phase D: scale and observe
 
-- [ ] Add incident queue and concurrency cap.
+- [x] Add a bounded concurrency cap (synchronous API/CLI path).
+- [ ] Add a durable incident queue.
 - [ ] Load-test concurrent rooms.
-- [ ] Kill/restart test.
+- [ ] Kill/restart test with a Console-managed agent.
 - [ ] Add ROI improvements review.
 - [ ] Add model profile experiments.
 - [ ] Add dashboard and runbook.
