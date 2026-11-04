@@ -206,6 +206,23 @@ uvicorn kube_investigator.trust_harness:app --host 127.0.0.1 --port 8099
 # Configure this URL as an eval model in Switch Trust CLI.
 ```
 
+### Switch Trust admin prerequisites
+
+Based on the Switch Trust admin documentation:
+
+- Open **Settings → API keys**. The page requires the **Editor** role or higher; a **Viewer**
+  cannot create or see keys.
+- Create a key with the least role that works: **Viewer** for read-only `switch trust status`
+  and `switch roi`, **Editor** for evaluation/SDK workflows. API keys are shown once and cannot
+  be recovered; revoke and replace a lost key.
+- Keys can expire after up to 365 days. Lowering a member's role immediately revokes keys
+  scoped above the new role.
+- The CodeScan action uses a separate `SWITCH_TRUST_TOKEN`, typically an **Ingest only** or
+  **Editor** key, plus `SWITCH_TRUST_LLM_API_KEY` for its scanner model.
+
+This repository never creates, stores, or prints a Trust API key. Set it only in the environment
+or the CI secret store.
+
 CI also includes `.github/workflows/switch-trust.yml`, which runs the pinned Switch Trust
 CodeScan action when `SWITCH_TRUST_TOKEN` and `SWITCH_TRUST_LLM_API_KEY` are configured. Without
 those secrets the workflow records an explicit skip; it never reports a skipped scan as a pass.
