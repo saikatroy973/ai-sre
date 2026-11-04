@@ -1,0 +1,116 @@
+name: Switch Trust AI CodeScan (OpenCode Go)
+
+# Optional AI CodeScan path for teams whose provider is OpenCode Go rather than
+# a directly billable OpenAI/Anthropic/Gemini key. It runs the same pinned
+# scanner image and Trust upload path, but routes model calls through a local
+# OpenAI-compatible proxy that adds the OpenCode session header.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  codescan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SWITCH_TRUST_TOKEN: ${{ secrets.SWITCH_TRUST_TOKEN }}
+      OPENCODE_GO_API_KEY: ${{ secrets.OPENCODE_GO_API_KEY }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - name: Check Switch Trust and OpenCode configuration
+        id: configure
+        run: |
+          if [ -n "$SWITCH_TRUST_TOKEN" ] && [ -n "$OPENCODE_GO_API_KEY" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::SWITCH_TRUST_TOKEN or OPENCODE_GO_API_KEY is not configured; the AI scan is skipped, not passed."
+          fi
+      - name: Install proxy dependencies
+        if: steps.configure.outputs.enabled == 'true'
+        run: python -m pip install --quiet fastapi uvicorn httpx
+      - name: Start OpenCode Go proxy
+        if: steps.configure.outputs.enabled == 'true'
+        run: |
+          nohup python scripts/opencode_proxy.py > proxy.log 2>&1 &
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8110/health >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat proxy.log
+          echo "::error::OpenCode Go proxy did not start"
+          exit 1
+      - name: Download scanner image
+        if: steps.configure.outputs.enabled == 'true'
+        env:
+          SWITCH_TRUST_INSTANCE: ${{ vars.SWITCH_TRUST_INSTANCE || 'https://app.switchagents.ai' }}
+        run: |
+          scheme="${SWITCH_TRUST_INSTANCE%%://*}"
+          host="${SWITCH_TRUST_INSTANCE#*://}"
+          if [[ "$host" == app.* ]]; then
+            API_INSTANCE="${scheme}://api${host#app}"
+          else
+            API_INSTANCE="${scheme}://api.${host}"
+          fi
+          curl -sS -L --fail --output image.tar \
+            "$API_INSTANCE/downloads/sensors/aispm_inventory_scanner/1.0.0" \
+            -H "Authorization: ApiKey $SWITCH_TRUST_TOKEN"
+          docker load --input image.tar | tee load.log
+          img=$(sed -n -e 's/^Loaded image: //p' -e 's/^Loaded image ID: //p' load.log | head -1)
+          [ -n "$img" ] || { echo "::error::docker load did not report an image"; exit 1; }
+          docker tag "$img" aispm-action-test:latest
+      - name: Run AI CodeScan through OpenCode Go
+        if: steps.configure.outputs.enabled == 'true'
+        env:
+          SWITCH_TRUST_INSTANCE: ${{ vars.SWITCH_TRUST_INSTANCE || 'https://app.switchagents.ai' }}
+          SWITCH_TRUST_OPENCODE_MODEL: ${{ vars.SWITCH_TRUST_OPENCODE_MODEL || 'openai:deepseek-v4.1-flash' }}
+        run: |
+          set -o pipefail
+          docker run --rm --network host \
+            -e HOME=/tmp \
+            -e GITHUB_WORKSPACE=/github/workspace \
+            -e GITHUB_ACTIONS \
+            -e GITHUB_WORKFLOW \
+            -e GITHUB_ACTION \
+            -e GITHUB_ACTOR \
+            -e GITHUB_EVENT_NAME \
+            -e GITHUB_REPOSITORY \
+            -e GITHUB_REF \
+            -e GITHUB_SHA \
+            -e SWITCH_TRUST_INSTANCE \
+            -e "SWITCH_TRUST_API_KEY=$SWITCH_TRUST_TOKEN" \
+            -e SWITCH_TRUST_SCM_PROVIDER=github \
+            -e "SWITCH_TRUST_SCM_REPO_URL=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            -e "LLM_MODEL=$SWITCH_TRUST_OPENCODE_MODEL" \
+            -e LLM_API_KEY=proxy-key \
+            -e OPENAI_API_KEY=proxy-key \
+            -e OPENAI_BASE_URL=http://127.0.0.1:8110/v1 \
+            -e OPENAI_API_BASE=http://127.0.0.1:8110/v1 \
+            -v "$GITHUB_WORKSPACE:/github/workspace" \
+            aispm-action-test:latest 2>&1 | tee scan.log
+          if ! grep -q "Scan complete, found:" scan.log; then
+            echo "::error::scanner did not report completion"
+            exit 1
+          fi
+          if grep -q -E "Some scanners did not complete|MCP scanner did not complete" scan.log; then
+            echo "::error::AI scan incomplete; inventory may be partial"
+            exit 1
+          fi
+      - name: Enforce Trust findings gate
+        if: always() && steps.configure.outputs.enabled == 'true'
+        env:
+          SWITCH_TRUST_INSTANCE: ${{ vars.SWITCH_TRUST_INSTANCE || 'https://app.switchagents.ai' }}
+          TRUST_GATE_SEVERITY: ${{ vars.TRUST_GATE_SEVERITY || 'high' }}
+        run: python scripts/trust_gate.py
+      - name: Record that the scan was skipped
+        if: steps.configure.outputs.enabled != 'true'
+        run: |
+          echo "OpenCode Go AI CodeScan was not run. Set SWITCH_TRUST_TOKEN and"
+          echo "OPENCODE_GO_API_KEY to enable it. This is not a passing scan."

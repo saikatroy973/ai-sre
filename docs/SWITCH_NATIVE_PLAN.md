@@ -87,7 +87,7 @@ Implemented and verified live through **Switch Console**, the mandatory live age
   live Console runtime.
 
 Offline validation: `ruff check .`, `ruff format --check .`, and the full pytest suite pass
-(234 tests). The Switch protocol and Console API tests use an in-memory fake and
+(236 tests). The Switch protocol and Console API tests use an in-memory fake and
 `httpx.MockTransport`; the repository's test configuration forbids real sockets.
 
 Verified live for the optional self-hosted collaboration profile:
