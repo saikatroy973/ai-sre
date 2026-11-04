@@ -12,6 +12,7 @@ dependencies = [
     "fastapi>=0.115,<1",
     "httpx>=0.28,<1",
     "mcp>=1.10,<2",
+    "opentelemetry-api>=1.30,<2",
     "pydantic>=2.10,<3",
     "uvicorn>=0.34,<1",
     "websocket-client>=1.8,<2",
@@ -20,6 +21,10 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8.3,<10", "ruff>=0.11,<1"]
 kubernetes = ["kubernetes>=32,<36"]
+otel = [
+  "opentelemetry-sdk>=1.30,<2",
+  "opentelemetry-exporter-otlp-proto-http>=1.30,<2",
+]
 
 [project.scripts]
 kube-investigator = "kube_investigator.cli:main"

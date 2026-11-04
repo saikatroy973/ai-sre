@@ -120,6 +120,50 @@ def test_console_login_and_create_agent_use_the_gateway_management_api():
     ]
 
 
+def test_console_package_document_and_room_link_routes():
+    seen = []
+
+    def handler(request):
+        seen.append((request.method, request.url.path))
+        if request.url.path == "/gateway/auth/login":
+            return response({"id": "admin"})
+        if request.url.path == "/gateway/documents" and request.method == "POST":
+            return response({"id": "doc-1", "name": "kit-doc"}, status=201)
+        if request.url.path == "/gateway/packages" and request.method == "POST":
+            return response({"id": "pkg-1", "name": "kit"}, status=201)
+        if request.url.path == "/gateway/packages/pkg-1/documents":
+            return response([{"id": "doc-1"}])
+        if request.url.path == "/gateway/rooms/room-1/packages":
+            return response([{"id": "pkg-1"}])
+        if request.url.path == "/gateway/rooms/room-1/linked-rooms":
+            assert request.method == "POST"
+            return response(
+                {"target_room_id": "memory-1", "label": "approved incidents"},
+                status=201,
+            )
+        if request.url.path.endswith("/documents/doc-1"):
+            return response({"ok": True}, status=201)
+        if request.url.path.endswith("/packages/pkg-1"):
+            return response({"ok": True}, status=201)
+        raise AssertionError(f"unexpected {request.method} {request.url.path}")
+
+    console = client(handler)
+    console.create_document(
+        name="kit-doc",
+        description="Kit",
+        instructions="Read",
+        content="Rules",
+    )
+    console.create_package(name="kit", description="Kit", instructions="Read")
+    assert console.package_documents("pkg-1") == [{"id": "doc-1"}]
+    console.add_document_to_package("pkg-1", "doc-1")
+    console.attach_package_to_room("room-1", "pkg-1")
+    console.link_room("room-1", "memory-1", "approved incidents")
+    assert ("POST", "/gateway/packages/pkg-1/documents/doc-1") in seen
+    assert ("POST", "/gateway/rooms/room-1/packages/pkg-1") in seen
+    assert ("POST", "/gateway/rooms/room-1/linked-rooms") in seen
+
+
 def test_console_errors_are_sanitized():
     def handler(request):
         return httpx.Response(500, text="secret-cookie and internals")
@@ -140,6 +184,11 @@ class FakeConsoleClient:
         self.closed = False
         self._agents = []
         self._rooms = []
+        self._documents = []
+        self._packages = []
+        self._package_documents = {}
+        self._room_packages = {}
+        self._links = {}
         FakeConsoleClient.instances.append(self)
 
     def close(self):
@@ -159,6 +208,42 @@ class FakeConsoleClient:
 
     def rooms(self):
         return list(self._rooms)
+
+    def documents(self):
+        return list(self._documents)
+
+    def create_document(self, **kwargs):
+        item = {"id": f"{kwargs['name']}-doc", "name": kwargs["name"]}
+        self._documents.append(item)
+        return item
+
+    def packages(self):
+        return list(self._packages)
+
+    def create_package(self, **kwargs):
+        item = {"id": f"{kwargs['name']}-pkg", "name": kwargs["name"]}
+        self._packages.append(item)
+        self._package_documents.setdefault(item["id"], [])
+        return item
+
+    def package_documents(self, package_id):
+        return list(self._package_documents.get(package_id, []))
+
+    def add_document_to_package(self, package_id, document_id):
+        self._package_documents.setdefault(package_id, []).append({"id": document_id})
+
+    def room_packages(self, room_id):
+        return [{"id": value} for value in self._room_packages.get(room_id, [])]
+
+    def attach_package_to_room(self, room_id, package_id):
+        self._room_packages.setdefault(room_id, []).append(package_id)
+
+    def linked_rooms(self, room_id):
+        return [{"target_room_id": target} for target in self._links.get(room_id, [])]
+
+    def link_room(self, room_id, target_room_id, label):
+        del label
+        self._links.setdefault(room_id, []).append(target_room_id)
 
     def create_agent(self, **kwargs):
         self.agent_calls.append(kwargs)
@@ -223,6 +308,9 @@ def test_console_setup_creates_six_agents_and_core_rooms(tmp_path, monkeypatch, 
         "memory": "k8s-memory-id",
         "governance": "k8s-governance-id",
     }
+    assert payload["incident_kit_package_id"] == "k8s-incident-kit-pkg"
+    assert len(fake._documents) == 3
+    assert len(fake._package_documents["k8s-incident-kit-pkg"]) == 3
     assert fake.closed is True
 
 
@@ -244,6 +332,12 @@ def test_console_incident_creates_a_top_level_kickoff(tmp_path, monkeypatch, cap
         "evidence-verifier",
     ):
         fake._agents.append({"name": name, "agent_id": f"{name}-id"})
+    fake._rooms = [
+        {"name": "k8s-incidents", "id": "k8s-incidents-id"},
+        {"name": "k8s-change", "id": "k8s-change-id"},
+        {"name": "k8s-memory", "id": "k8s-memory-id"},
+        {"name": "k8s-governance", "id": "k8s-governance-id"},
+    ]
     FakeConsoleClient.instances.append(fake)
     monkeypatch.setattr(
         "kube_investigator.cli.ConsoleClient",
@@ -264,6 +358,13 @@ def test_console_incident_creates_a_top_level_kickoff(tmp_path, monkeypatch, cap
     )
     payload = json.loads(capsys.readouterr().out)
     assert payload["room_id"] == "incident-room-id"
+    assert payload["incident_kit_package_id"] == "k8s-incident-kit-pkg"
+    assert fake._room_packages["incident-room-id"] == ["k8s-incident-kit-pkg"]
+    assert set(fake._links["incident-room-id"]) == {
+        "k8s-memory-id",
+        "k8s-change-id",
+        "k8s-governance-id",
+    }
     template = fake.room_calls[-1]
     assert "\nkickoff: |\n" in template
     assert "@incident-commander Start the read-only investigation." in template

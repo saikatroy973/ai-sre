@@ -3,14 +3,16 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from kube_investigator.errors import NotFoundError
 from kube_investigator.models import (
     AgentMessage,
     Evidence,
     Investigation,
+    InvestigationRequest,
     InvestigationState,
     Report,
     utc_now,
@@ -25,6 +27,13 @@ _TRANSITIONS = {
     InvestigationState.REPORTED: set(),
     InvestigationState.FAILED: set(),
 }
+
+
+@dataclass(frozen=True)
+class QueueJob:
+    id: UUID
+    request: InvestigationRequest
+    attempts: int
 
 
 class Store:
@@ -59,6 +68,18 @@ class Store:
                 );
                 CREATE INDEX IF NOT EXISTS messages_investigation
                     ON messages(investigation_id);
+                CREATE TABLE IF NOT EXISTS investigation_queue (
+                    id TEXT PRIMARY KEY,
+                    request TEXT NOT NULL,
+                    status TEXT NOT NULL CHECK(status IN ('pending','running','complete','failed')),
+                    attempts INTEGER NOT NULL DEFAULT 0,
+                    investigation_id TEXT,
+                    error TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS investigation_queue_status
+                    ON investigation_queue(status);
                 CREATE TRIGGER IF NOT EXISTS evidence_no_update
                     BEFORE UPDATE ON evidence BEGIN
                     SELECT RAISE(ABORT, 'evidence is append-only'); END;
@@ -181,3 +202,96 @@ class Store:
                 (str(investigation_id),),
             ).fetchall()
         return [AgentMessage.model_validate_json(row[0]) for row in rows]
+
+    def enqueue(self, request: InvestigationRequest) -> UUID:
+        """Persist a new incident request for a worker to claim."""
+        job_id = uuid4()
+        now = utc_now().isoformat()
+        with self.connection() as connection:
+            connection.execute(
+                "INSERT INTO investigation_queue "
+                "(id, request, status, attempts, created_at, updated_at) "
+                "VALUES (?, ?, 'pending', 0, ?, ?)",
+                (str(job_id), request.model_dump_json(), now, now),
+            )
+        return job_id
+
+    def queue_jobs(self, *, status: str | None = None) -> list[dict[str, object]]:
+        query = (
+            "SELECT id, request, status, attempts, investigation_id, error, "
+            "created_at, updated_at FROM investigation_queue"
+        )
+        parameters: tuple[object, ...] = ()
+        if status is not None:
+            query += " WHERE status = ?"
+            parameters = (status,)
+        query += " ORDER BY rowid"
+        with self.connection() as connection:
+            rows = connection.execute(query, parameters).fetchall()
+        return [
+            {
+                "id": row[0],
+                "request": InvestigationRequest.model_validate_json(row[1]).model_dump(mode="json"),
+                "status": row[2],
+                "attempts": row[3],
+                "investigation_id": row[4],
+                "error": row[5],
+                "created_at": row[6],
+                "updated_at": row[7],
+            }
+            for row in rows
+        ]
+
+    def claim_next(self) -> QueueJob | None:
+        """Atomically move the oldest pending job to running."""
+        now = utc_now().isoformat()
+        with self.connection() as connection:
+            row = connection.execute(
+                "SELECT id, request, attempts FROM investigation_queue "
+                "WHERE status = 'pending' ORDER BY rowid LIMIT 1"
+            ).fetchone()
+            if row is None:
+                return None
+            updated = connection.execute(
+                "UPDATE investigation_queue "
+                "SET status = 'running', attempts = attempts + 1, updated_at = ? "
+                "WHERE id = ? AND status = 'pending'",
+                (now, row[0]),
+            )
+            if updated.rowcount != 1:
+                return None
+        return QueueJob(
+            id=UUID(str(row[0])),
+            request=InvestigationRequest.model_validate_json(row[1]),
+            attempts=int(row[2]) + 1,
+        )
+
+    def complete_job(self, job_id: UUID, investigation_id: UUID) -> None:
+        with self.connection() as connection:
+            result = connection.execute(
+                "UPDATE investigation_queue SET status = 'complete', investigation_id = ?, "
+                "error = NULL, updated_at = ? WHERE id = ? AND status = 'running'",
+                (str(investigation_id), utc_now().isoformat(), str(job_id)),
+            )
+            if result.rowcount != 1:
+                raise NotFoundError("Queue job is not running")
+
+    def fail_job(self, job_id: UUID, error: str) -> None:
+        with self.connection() as connection:
+            result = connection.execute(
+                "UPDATE investigation_queue SET status = 'failed', error = ?, "
+                "updated_at = ? WHERE id = ? AND status = 'running'",
+                (error[:2000], utc_now().isoformat(), str(job_id)),
+            )
+            if result.rowcount != 1:
+                raise NotFoundError("Queue job is not running")
+
+    def retry_job(self, job_id: UUID) -> None:
+        with self.connection() as connection:
+            result = connection.execute(
+                "UPDATE investigation_queue SET status = 'pending', error = NULL, "
+                "updated_at = ? WHERE id = ? AND status = 'failed'",
+                (utc_now().isoformat(), str(job_id)),
+            )
+            if result.rowcount != 1:
+                raise NotFoundError("Queue job is not failed")

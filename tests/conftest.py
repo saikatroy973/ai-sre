@@ -45,6 +45,8 @@ def offline_environment(monkeypatch):
         "INVESTIGATOR_CONSOLE_PASSWORD",
         "INVESTIGATOR_CONSOLE_ENV_FILE",
         "INVESTIGATOR_CONSOLE_TIMEOUT_SECONDS",
+        "OTEL_EXPORTER_OTLP_ENDPOINT",
+        "OTEL_SERVICE_NAME",
     ):
         monkeypatch.delenv(variable, raising=False)
 

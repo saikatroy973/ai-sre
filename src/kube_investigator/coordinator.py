@@ -34,6 +34,7 @@ from kube_investigator.switch.runtime import (
     SwitchRuntime,
     build_switch_runtime,
 )
+from kube_investigator.telemetry import configure_tracing, span
 from kube_investigator.verification import EvidenceVerifier
 
 
@@ -96,8 +97,15 @@ class Coordinator:
             )
             leads = self._retrieve_memory(investigation, recorder)
             self._specialist_abstentions(investigation, recorder)
-            for evidence in self.collector.collect(investigation):
-                self.store.append_evidence(evidence)
+            with span(
+                "investigation.collect",
+                investigation_id=str(investigation.id),
+                trace_id=investigation.trace_id,
+                cluster=investigation.scope.cluster,
+                namespace=investigation.scope.namespace,
+            ):
+                for evidence in self.collector.collect(investigation):
+                    self.store.append_evidence(evidence)
             evidence = self.store.evidence(investigation.id)
             if recorder is not None:
                 recorder.evidence_summary(evidence)
@@ -108,11 +116,17 @@ class Coordinator:
             )
             try:
                 # Do not pay for reasoning over a known-incomplete collection.
-                proposal = (
-                    Proposal(candidate=Candidate(category="undetermined", evidence_ids=[]))
-                    if collection_incomplete
-                    else self.reasoner.propose(request, evidence)
-                )
+                with span(
+                    "investigation.reason",
+                    investigation_id=str(investigation.id),
+                    trace_id=investigation.trace_id,
+                    reasoner=self.settings.reasoner,
+                ):
+                    proposal = (
+                        Proposal(candidate=Candidate(category="undetermined", evidence_ids=[]))
+                        if collection_incomplete
+                        else self.reasoner.propose(request, evidence)
+                    )
             except ReasoningError as exc:
                 reasoning_error = exc.code
                 proposal = Proposal(
@@ -146,9 +160,15 @@ class Coordinator:
                 payload={"candidate": proposal.candidate.model_dump(mode="json")},
             )
             # Reload persisted evidence, not an agent's reconstructed description of it.
-            verification = self.verifier.verify(
-                investigation, proposal.candidate, self.store.evidence(investigation.id)
-            )
+            with span(
+                "investigation.verify",
+                investigation_id=str(investigation.id),
+                trace_id=investigation.trace_id,
+                candidate=proposal.candidate.category,
+            ):
+                verification = self.verifier.verify(
+                    investigation, proposal.candidate, self.store.evidence(investigation.id)
+                )
             verification_response = self._send(
                 investigation,
                 recorder,
@@ -406,6 +426,7 @@ class Coordinator:
 
 
 def build_coordinator(settings: Settings) -> Coordinator:
+    configure_tracing("kube-investigator")
     store = Store(settings.data_dir)
     switch = build_switch_runtime(settings)
     memory = MemoryStore(store) if switch is not None else None

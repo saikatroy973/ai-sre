@@ -26,6 +26,7 @@ from kube_investigator.errors import InvestigatorError
 from kube_investigator.models import Candidate, InvestigationRequest, Scope
 from kube_investigator.storage import Store
 from kube_investigator.switch.memory import MemoryStore
+from kube_investigator.telemetry import configure_tracing
 from kube_investigator.verification import EvidenceVerifier
 
 mcp = FastMCP(
@@ -320,6 +321,7 @@ def kube_investigator_source_status(
 
 
 def main() -> None:
+    configure_tracing("kube-investigator-mcp")
     mcp.run()
 
 

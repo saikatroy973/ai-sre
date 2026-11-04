@@ -167,6 +167,96 @@ class ConsoleClient:
     def rooms(self) -> list[dict[str, Any]]:
         return self._list("/gateway/rooms", "Console rooms")
 
+    def documents(self) -> list[dict[str, Any]]:
+        return self._list("/gateway/documents", "Console documents")
+
+    def create_document(
+        self,
+        *,
+        name: str,
+        description: str,
+        instructions: str,
+        content: str,
+    ) -> dict[str, Any]:
+        response = self._request(
+            "POST",
+            "/gateway/documents",
+            json={
+                "read_visibility": "public",
+                "write_visibility": "private",
+                "name": name,
+                "description": description,
+                "instructions": instructions,
+                "content": content,
+            },
+        )
+        self._check(response, "Console document creation")
+        return self._json(response, "Console document creation")
+
+    def packages(self) -> list[dict[str, Any]]:
+        return self._list("/gateway/packages", "Console packages")
+
+    def create_package(
+        self,
+        *,
+        name: str,
+        description: str,
+        instructions: str,
+    ) -> dict[str, Any]:
+        response = self._request(
+            "POST",
+            "/gateway/packages",
+            json={
+                "read_visibility": "public",
+                "write_visibility": "private",
+                "name": name,
+                "description": description,
+                "instructions": instructions,
+            },
+        )
+        self._check(response, "Console package creation")
+        return self._json(response, "Console package creation")
+
+    def package_documents(self, package_id: str) -> list[dict[str, Any]]:
+        return self._list(
+            f"/gateway/packages/{package_id}/documents",
+            "Console package documents",
+        )
+
+    def add_document_to_package(self, package_id: str, document_id: str) -> None:
+        response = self._request(
+            "POST",
+            f"/gateway/packages/{package_id}/documents/{document_id}",
+        )
+        self._check(response, "Console package document attachment")
+
+    def room_packages(self, room_id: str) -> list[dict[str, Any]]:
+        return self._list(
+            f"/gateway/rooms/{room_id}/packages",
+            "Console room packages",
+        )
+
+    def attach_package_to_room(self, room_id: str, package_id: str) -> None:
+        response = self._request(
+            "POST",
+            f"/gateway/rooms/{room_id}/packages/{package_id}",
+        )
+        self._check(response, "Console package attachment")
+
+    def linked_rooms(self, room_id: str) -> list[dict[str, Any]]:
+        return self._list(
+            f"/gateway/rooms/{room_id}/linked-rooms",
+            "Console room links",
+        )
+
+    def link_room(self, room_id: str, target_room_id: str, label: str) -> None:
+        response = self._request(
+            "POST",
+            f"/gateway/rooms/{room_id}/linked-rooms",
+            json={"target_room_id": target_room_id, "label": label},
+        )
+        self._check(response, "Console room link")
+
     def create_agent(
         self,
         *,

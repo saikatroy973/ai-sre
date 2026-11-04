@@ -45,6 +45,11 @@ Implemented and verified live through **Switch Console**, the mandatory live age
   cost data, and records a snapshot in `k8s-governance`. Errors are sanitized and the API key is
   never printed.
 - A pinned Switch Trust CodeScan workflow; it skips explicitly when its secrets are absent.
+- The incident kit is a Switch package with evidence-standard, report-template, and memory-policy
+  library documents. `switch console incident` attaches it and links the new room to
+  `k8s-memory`, `k8s-change`, and `k8s-governance`.
+- A durable local SQLite incident queue (`queue add|list|run`) for the protocol/API path.
+- Optional OTel spans for collection, reasoning, and verification.
 - A deterministic protocol-level harness and local Compose stack for tests and CI. It is not the
   live Console runtime.
 
@@ -52,20 +57,26 @@ Offline validation: `ruff check .`, `ruff format --check .`, and the full pytest
 Switch protocol and Console API tests use an in-memory fake and `httpx.MockTransport`; the
 repository's test configuration forbids real sockets.
 
+Verified live for the optional self-hosted collaboration profile:
+
+- `switch up --collab` started Mattermost on `:8065`. The setup container created the admin,
+  team, and user, and registered the default Mattermost bridge. The Console incident rooms remain
+  internal-only, so this verifies the optional stack, not a bridged Console transcript.
+
 Not yet verified or not implemented:
 
-- The optional Mattermost `collab` profile and a bridged messaging app have not been exercised;
-  the Console live path uses internal-only rooms.
 - Trust and ROI calls have not been run against a provisioned tenant; they are covered by mocked
-  HTTP responses. Trust Live traffic, SDK/OTel instrumentation, and a promotion gate that blocks
-  on findings are not implemented. The CodeScan workflow publishes findings; it does not fail a
-  release by itself.
-- Durable queueing, semantic memory indexing, live telemetry/change sources, Scale Agentex
-  hosting, and remediation execution are later phases.
+  HTTP responses. Trust Live traffic, sending OTel spans to Trust, and a promotion gate that
+  blocks on findings are not implemented. The CodeScan workflow publishes findings; it does not
+  fail a release by itself.
+- A bridged Console incident room, semantic memory indexing, live telemetry/change sources, Scale
+  Agentex hosting, and remediation execution are later phases. The local SQLite queue is a
+  single-worker queue, not a distributed one.
 - The local Console demo uses OpenCode Auto mode because there is no separate human approval
   channel. Auto mode approves every provider tool request. The MCP evidence tools are read-only,
   but the demo is not an OS sandbox; a shared deployment needs dedicated OS accounts/containers
-  and a reviewed approval path.
+  and a reviewed approval path. `switch console setup --no-auto-mode` creates agents that require
+  Console approvals instead.
 
 
 ---
@@ -691,8 +702,12 @@ Every episode must show a Switch surface and a working artifact. No episode is â
 - [x] Create the incident room template and role instructions.
 - [x] Create six Console-managed agents and invite them to the core rooms.
 - [x] Set addressing via Console defaults, Auto mode for the OpenCode provider, tools, and model.
-- [ ] Attach the incident kit as a Switch package (documents are created from the template now).
+- [x] Create the incident kit package, attach it to incident rooms, and link each incident room
+  to `k8s-memory`, `k8s-change`, and `k8s-governance`.
+- [x] Add `switch up --collab` support and verify the Mattermost profile, setup seeder, and
+  default bridge on the self-hosted stack.
 - [ ] Run a human-only room walkthrough and record it.
+- [ ] Bridge a Console incident room to Mattermost (the Console path remains internal-only).
 
 ### Phase B: evidence and trust
 
@@ -702,7 +717,8 @@ Every episode must show a Switch surface and a working artifact. No episode is â
 - [ ] Create the HTTP evaluation harness.
 - [ ] Add Trust evaluations: OWASP, PII, secrets, grounding, citations.
 - [ ] Add the guardrail policy.
-- [ ] Add Trust SDK/OTel instrumentation.
+- [x] Add optional OpenTelemetry spans for collect, reason, and verify (OTLP exporter optional).
+- [ ] Send the same spans to Switch Trust Live traffic; that remains a Trust configuration gap.
 
 ### Phase C: memory and specialists
 
@@ -716,7 +732,8 @@ Every episode must show a Switch surface and a working artifact. No episode is â
 ### Phase D: scale and observe
 
 - [x] Add a bounded concurrency cap (synchronous API/CLI path).
-- [ ] Add a durable incident queue.
+- [x] Add a durable local SQLite incident queue with a single-worker CLI (`queue add|list|run`).
+- [ ] Add a distributed or multi-worker queue with lease recovery.
 - [ ] Load-test concurrent rooms.
 - [ ] Kill/restart test with a Console-managed agent.
 - [ ] Add ROI improvements review.

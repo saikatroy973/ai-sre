@@ -199,6 +199,45 @@ def test_memory_approval_refuses_an_unsupported_report(tmp_path, monkeypatch, ca
     assert "supported report" in capsys.readouterr().err
 
 
+def test_switch_up_collab_selects_the_mattermost_profile(tmp_path, monkeypatch, capsys):
+    calls = []
+
+    class Result:
+        returncode = 0
+
+    def fake_run(command, check):
+        calls.append(command)
+        return Result()
+
+    monkeypatch.setattr("kube_investigator.cli.subprocess.run", fake_run)
+    state = tmp_path / "switch"
+    assert (
+        main(
+            [
+                "switch",
+                "up",
+                "--collab",
+                "--state-dir",
+                str(state),
+                "--api-port",
+                "18000",
+                "--gateway-port",
+                "13000",
+                "--postgres-port",
+                "15432",
+            ]
+        )
+        == 0
+    )
+    command = calls[0]
+    assert command[command.index("--profile") + 1] == "gateway"
+    assert command.count("--profile") == 2
+    assert command[command.index("--profile", command.index("--profile") + 1) + 1] == "collab"
+    env_text = (state / ".env").read_text()
+    assert "MATTERMOST_ADMIN_PASSWORD=" in env_text
+    assert "Mattermost: http://127.0.0.1:8065" in capsys.readouterr().out
+
+
 def test_compose_file_exists_for_the_switch_up_command():
     root = Path(__file__).resolve().parents[1]
     compose = root / "deploy" / "switch" / "compose.yaml"
@@ -234,6 +273,11 @@ def test_generated_switch_environment_satisfies_the_compose_stack(tmp_path):
         "GATEWAY_ADMIN_PASSWORD",
         "FRONTEND_BASE_URL",
         "GATEWAY_PUBLIC_URL",
+        "MATTERMOST_ADMIN_USER",
+        "MATTERMOST_ADMIN_PASSWORD",
+        "MATTERMOST_TEAM_NAME",
+        "MATTERMOST_USER",
+        "MATTERMOST_USER_PASSWORD",
     ):
         assert values[name]
     assert values["API_HOST_PORT"] == "18000"
@@ -245,3 +289,20 @@ def test_generated_switch_environment_satisfies_the_compose_stack(tmp_path):
         == env_file
     )
     assert env_file.read_text() == original
+
+
+def test_existing_switch_environment_gets_missing_mattermost_values(tmp_path):
+    from kube_investigator.cli import _ensure_switch_env
+
+    state = tmp_path / "switch"
+    state.mkdir()
+    env_file = state / ".env"
+    env_file.write_text("SWITCH_VERSION=0.31.0\nDB_PASSWORD=keep-me\n")
+    _ensure_switch_env(
+        state, version="0.31.0", api_port=18000, gateway_port=13000, postgres_port=15432
+    )
+    text = env_file.read_text()
+    assert "DB_PASSWORD=keep-me" in text
+    assert "MATTERMOST_ADMIN_PASSWORD=" in text
+    assert "MATTERMOST_USER_PASSWORD=" in text
+    assert env_file.stat().st_mode & 0o777 == 0o600

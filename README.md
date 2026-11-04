@@ -79,6 +79,9 @@ What the Console path creates:
 - A kickoff addressed to `incident-commander`. Switch Console starts the session; the agent uses
   the Switch tools `read_context`, `load_internal_documents`, `send_targeted_message`,
   `post_message`, and `create_room_document`.
+- The `k8s-incident-kit` package attached to the room, containing evidence-standard,
+  report-template, and memory-policy library documents.
+- Directed links from the incident room to `k8s-memory`, `k8s-change`, and `k8s-governance`.
 - `evidence-summary` from the cluster investigator, `verification` from the evidence verifier, and
   `final-report` from the incident commander. `memory-context` is created only when approved
   history exists.
@@ -89,9 +92,10 @@ history in Console, not only in a terminal.
 
 The local Console demo runs the OpenCode agents with Auto mode on, because there is no separate
 human approval channel in this setup. OpenCode Auto mode approves every request; the MCP tools are
-read-only, but that is not an OS sandbox for the agent's provider tools. For a shared or production
-deployment, run each agent under a dedicated OS account or container with read-only mounts and
-review Console's Auto mode setting.
+read-only, but that is not an OS sandbox for the agent's provider tools. Use
+`switch console setup --no-auto-mode` when a person can approve requests in Console. For a shared
+or production deployment, run each agent under a dedicated OS account or container with read-only
+mounts and review Console's Auto mode setting.
 
 ### Deterministic protocol-level smoke test (optional)
 
@@ -119,9 +123,11 @@ kube-investigator switch down          # add --volumes to discard local state
 ```
 
 `switch up` writes a mode-0600 environment file at `.data/switch/.env` with generated database,
-registration, and Gateway credentials. Re-running it reuses that file. Use `--no-gateway` when
-only the API and rooms are needed, or `--api-port`, `--gateway-port`, and `--postgres-port` to
-change the published ports.
+registration, Gateway, and Mattermost credentials. Re-running it reuses that file. Use
+`--no-gateway` when only the API and rooms are needed, `--collab` to add the Mattermost profile,
+or `--api-port`, `--gateway-port`, and `--postgres-port` to change the published ports.
+`--collab` starts Mattermost on port 8065 and the setup seeder; it is still an internal-only
+protocol harness, not the Console live path.
 
 The protocol harness creates six Switch agent identities with one API key each, stored locally in
 `.data/switch/agents.json` (mode 0600), one incident room per run, and targeted handoffs with
@@ -189,6 +195,39 @@ tests and `demo` isolated. `switch-demo` always uses fixture Kubernetes data but
 Switch runtime; it is the deterministic protocol smoke test, not the Console-managed agent path.
 
 See `.env.example` for every Switch and Console setting.
+
+### Durable local incident queue
+
+The CLI can persist requests in SQLite and run them with a single local worker. This is a durable
+queue across process restarts, not a distributed workflow engine:
+
+```sh
+kube-investigator queue add \
+  --question 'Why is checkout failing?' \
+  --cluster demo-cluster --namespace shop --service checkout --deployment checkout
+kube-investigator queue list
+kube-investigator queue run          # process pending jobs; --once for one
+kube-investigator queue retry --id <queue-id>
+```
+
+A failed job is visible as `failed` with its sanitized error; the worker does not silently retry
+it. `queue retry` returns it to pending. The queue uses the same configured adapters and the same
+fail-closed Switch policy as `investigate`.
+
+### Optional OpenTelemetry
+
+The coordinator emits `investigation.collect`, `investigation.reason`, and
+`investigation.verify` spans. Tracing is off unless an OTLP endpoint is configured:
+
+```sh
+python -m pip install -e '.[otel]'
+export OTEL_EXPORTER_OTLP_ENDPOINT='http://127.0.0.1:4318'
+export OTEL_SERVICE_NAME='kube-investigator'
+```
+
+The MCP server also configures the same exporter when it starts. A missing SDK or endpoint is a
+no-op, never a reason for an investigation to fail. Switch Trust Live traffic remains a separate
+Trust data source; these spans are not a substitute for it.
 
 ## HTTP API
 
@@ -279,6 +318,10 @@ Implemented and tested offline:
 - A read-only MCP server (`python -m kube_investigator.mcp_server`) with evidence collection,
   persisted-investigation readback, independent verification, scoped memory lookup, and explicit
   source-abstention tools.
+- The `k8s-incident-kit` Switch package, automatically attached to new Console incident rooms,
+  plus room links to `k8s-memory`, `k8s-change`, and `k8s-governance`.
+- A durable local SQLite incident queue (`queue add|list|run`) with a single-worker CLI.
+- Optional OTel spans for collection, reasoning, and verification.
 - Human-approved incident memory with provenance, scope, expiry, superseding, integrity hashes,
   and prompt-injection-resistant rendering.
 - A read-only Switch Trust/ROI client with sanitized errors, key-identity scope discovery,
@@ -313,18 +356,22 @@ Verified live against the optional self-hosted Switch 0.31.0 protocol stack:
   investigations with targeted handoffs and specialist-owned documents.
 - The exclusive commander and verifier roles were assumed before handoff and released on session
   close.
+- `switch up --collab` started Mattermost on `:8065`; the setup container created the admin,
+  team, and user, and registered the default Mattermost bridge. The Console incident rooms remain
+  internal-only, so this verifies the optional stack, not a bridged Console transcript.
 
 Not yet implemented or not yet verified:
 
 - The Trust and ROI client is tested against mocked HTTP responses, not a provisioned Trust
   tenant. No claim in this README should be read as a live Trust or ROI result. Trust Live
-  traffic, SDK/OTel instrumentation, and a CI gate that blocks promotion on findings are not
-  implemented; the CodeScan workflow only records findings.
-- The optional Mattermost `collab` profile and a bridged messaging app were not exercised. The
-  Console live path uses internal-only rooms.
-- No durable incident queue, semantic memory index, live telemetry/change source, Scale Agentex
-  hosting, or remediation executor exists. Roles are room briefings, not Kubernetes
-  authorization or a security boundary.
+  traffic, SDK/OTel instrumentation into Trust, and a CI gate that blocks promotion on findings
+  are not implemented; the CodeScan workflow only records findings. Local OTel spans require an
+  OTLP exporter and are not sent to Trust automatically.
+- A sequential incident queue is implemented for the local CLI, but it is not a distributed
+  multi-worker queue with lease recovery.
+- There is no semantic memory index, live telemetry/change source, Scale Agentex hosting, or
+  remediation executor. Roles are room briefings, not Kubernetes authorization or a security
+  boundary.
 
 ## Test
 

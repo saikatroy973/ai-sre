@@ -465,6 +465,33 @@ Question: {normalized_question}
     ]
 
 
+INCIDENT_KIT_NAME = "k8s-incident-kit"
+
+
+def incident_kit_documents() -> list[dict[str, str]]:
+    """Library documents shared by every incident room through a package."""
+    return [
+        {
+            "name": "k8s-incident-evidence-standard",
+            "description": "What counts as evidence in a Kubernetes investigation.",
+            "instructions": "Read before accepting or rejecting a diagnosis.",
+            "content": _EVIDENCE_STANDARD,
+        },
+        {
+            "name": "k8s-incident-report-template",
+            "description": "The cited incident report shape.",
+            "instructions": "Use this shape for the final report.",
+            "content": _REPORT_TEMPLATE,
+        },
+        {
+            "name": "k8s-incident-memory-policy",
+            "description": "Promotion and retrieval rules for incident memory.",
+            "instructions": "Read before writing or citing memory.",
+            "content": MEMORY_POLICY,
+        },
+    ]
+
+
 def incident_room_template(
     *,
     room_name: str,

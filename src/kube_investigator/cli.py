@@ -30,9 +30,11 @@ from kube_investigator.switch.runtime import HttpSwitchRuntime, build_switch_run
 from kube_investigator.switch.specs import (
     AGENTS,
     CORE_ROOMS,
+    INCIDENT_KIT_NAME,
     console_instructions,
     core_room_template,
     core_room_yaml,
+    incident_kit_documents,
     incident_room_template,
 )
 from kube_investigator.switch.trust import (
@@ -62,6 +64,31 @@ def parser() -> argparse.ArgumentParser:
         command.add_argument("--data-dir", type=Path)
         command.add_argument("--json", action="store_true", help="Print the investigation as JSON")
 
+    queue = commands.add_parser("queue", help="Durable local incident queue")
+    queue_commands = queue.add_subparsers(dest="queue_command", required=True)
+    queue_add = queue_commands.add_parser("add", help="Persist an incident request")
+    for field in ("question", "cluster", "namespace", "service", "deployment"):
+        queue_add.add_argument(f"--{field}", required=True)
+    queue_add.add_argument("--data-dir", type=Path)
+    queue_add.add_argument("--json", action="store_true")
+    queue_list = queue_commands.add_parser("list", help="List queued incidents")
+    queue_list.add_argument(
+        "--status",
+        choices=("pending", "running", "complete", "failed"),
+    )
+    queue_list.add_argument("--data-dir", type=Path)
+    queue_list.add_argument("--json", action="store_true")
+    queue_retry = queue_commands.add_parser("retry", help="Return a failed job to pending")
+    queue_retry.add_argument("--id", type=UUID, required=True)
+    queue_retry.add_argument("--data-dir", type=Path)
+    queue_retry.add_argument("--json", action="store_true")
+    queue_run = queue_commands.add_parser(
+        "run", help="Run pending incidents with the configured adapters"
+    )
+    queue_run.add_argument("--once", action="store_true", help="Run at most one job")
+    queue_run.add_argument("--data-dir", type=Path)
+    queue_run.add_argument("--json", action="store_true")
+
     switch_demo = commands.add_parser(
         "switch-demo",
         help="Run a fixture investigation in a real Switch room",
@@ -85,9 +112,13 @@ def parser() -> argparse.ArgumentParser:
     up.add_argument("--gateway-port", type=int, default=13000)
     up.add_argument("--postgres-port", type=int, default=15432)
     up.add_argument("--no-gateway", action="store_true")
+    up.add_argument(
+        "--collab", action="store_true", help="Start the Mattermost collaboration profile"
+    )
     down = switch_commands.add_parser("down", help="Stop the local Switch stack")
     down.add_argument("--state-dir", type=Path)
     down.add_argument("--compose-file", type=Path)
+    down.add_argument("--collab", action="store_true")
     down.add_argument("--volumes", action="store_true")
     status = switch_commands.add_parser("status", help="Check Switch and print room ids")
     status.add_argument("--state-dir", type=Path)
@@ -114,6 +145,12 @@ def parser() -> argparse.ArgumentParser:
     console_setup.add_argument("--controller-id")
     console_setup.add_argument(
         "--refresh", action="store_true", help="Update existing agent instructions"
+    )
+    console_setup.add_argument(
+        "--auto-mode",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="OpenCode Auto mode; use --no-auto-mode to require approvals in Console",
     )
     console_setup.add_argument("--json", action="store_true")
     console_incident = console_commands.add_parser(
@@ -218,6 +255,8 @@ def main(argv: list[str] | None = None) -> int:
     service = None
     runtime = None
     try:
+        if args.command == "queue":
+            return _queue_command(args)
         if args.command == "switch":
             return _switch_command(args)
         if args.command == "switch-demo":
@@ -301,6 +340,104 @@ def _settings_from_args(args: argparse.Namespace) -> Settings:
     return settings
 
 
+def _queue_command(args: argparse.Namespace) -> int:
+    data_dir = args.data_dir or Path(os.getenv("INVESTIGATOR_DATA_DIR", ".data"))
+    store = Store(data_dir)
+    if args.queue_command == "add":
+        request = InvestigationRequest(
+            question=args.question,
+            cluster=args.cluster,
+            namespace=args.namespace,
+            service=args.service,
+            deployment=args.deployment,
+        )
+        job_id = store.enqueue(request)
+        if args.json:
+            print(
+                json.dumps(
+                    {"queue_id": str(job_id), "status": "pending"},
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
+        else:
+            print(f"Queued investigation: {job_id}")
+        return 0
+    if args.queue_command == "list":
+        jobs = store.queue_jobs(status=args.status)
+        if args.json:
+            print(json.dumps(jobs, indent=2, sort_keys=True))
+        else:
+            for job in jobs:
+                request = job["request"]
+                print(
+                    f"{job['id']} [{job['status']}] attempts={job['attempts']} "
+                    f"{request['namespace']}/{request['service']}: {request['question']}"
+                )
+                if job["error"]:
+                    print(f"  error: {job['error']}")
+        return 0
+    if args.queue_command == "retry":
+        store.retry_job(args.id)
+        if args.json:
+            print(json.dumps({"queue_id": str(args.id), "status": "pending"}, indent=2))
+        else:
+            print(f"Re-queued investigation: {args.id}")
+        return 0
+    if args.queue_command == "run":
+        return _run_queue(args, store)
+    raise AssertionError("unreachable")
+
+
+def _run_queue(args: argparse.Namespace, store: Store) -> int:
+    settings = _settings_from_args(args)
+    coordinator = build_coordinator(settings)
+    results: list[dict[str, object]] = []
+    try:
+        while True:
+            job = store.claim_next()
+            if job is None:
+                break
+            try:
+                investigation = coordinator.run(job.request, Principal.operator(settings))
+                store.complete_job(job.id, investigation.id)
+                results.append(
+                    {
+                        "queue_id": str(job.id),
+                        "status": "complete",
+                        "investigation_id": str(investigation.id),
+                    }
+                )
+            except InvestigatorError as exc:
+                store.fail_job(job.id, str(exc))
+                results.append(
+                    {
+                        "queue_id": str(job.id),
+                        "status": "failed",
+                        "error": str(exc),
+                    }
+                )
+            if args.once:
+                break
+    finally:
+        coordinator.close()
+    if args.json:
+        print(json.dumps(results, indent=2, sort_keys=True))
+    elif results:
+        for result in results:
+            print(
+                f"{result['queue_id']}: {result['status']}"
+                + (
+                    f" ({result['investigation_id']})"
+                    if "investigation_id" in result
+                    else f" ({result.get('error')})"
+                )
+            )
+    else:
+        print("No pending queue jobs.")
+    return 1 if any(result["status"] == "failed" for result in results) else 0
+
+
 def switch_demo_settings(args: argparse.Namespace) -> Settings:
     data_dir = args.data_dir or Path(os.getenv("INVESTIGATOR_DATA_DIR", ".data"))
     state_dir = args.state_dir or Path(
@@ -357,6 +494,8 @@ def _switch_up(args: argparse.Namespace) -> int:
     ]
     if not args.no_gateway:
         command.extend(["--profile", "gateway"])
+    if args.collab:
+        command.extend(["--profile", "collab"])
     command.extend(["up", "-d"])
     result = subprocess.run(command, check=False)
     if result.returncode != 0:
@@ -366,6 +505,8 @@ def _switch_up(args: argparse.Namespace) -> int:
     print(f"API: http://127.0.0.1:{args.api_port}")
     if not args.no_gateway:
         print(f"Gateway: http://127.0.0.1:{args.gateway_port}")
+    if args.collab:
+        print("Mattermost: http://127.0.0.1:8065")
     print("Next: kube-investigator switch bootstrap")
     return 0
 
@@ -385,8 +526,10 @@ def _switch_down(args: argparse.Namespace) -> int:
         str(compose),
         "--profile",
         "gateway",
-        "down",
     ]
+    if args.collab:
+        command.extend(["--profile", "collab"])
+    command.append("down")
     if args.volumes:
         command.append("--volumes")
     return subprocess.run(command, check=False).returncode
@@ -490,6 +633,41 @@ def _console_status(client: ConsoleClient, args: argparse.Namespace) -> int:
     return 0
 
 
+def _ensure_incident_kit(client: ConsoleClient) -> str:
+    existing_documents = {str(item.get("name")): str(item.get("id")) for item in client.documents()}
+    for document in incident_kit_documents():
+        if document["name"] in existing_documents:
+            continue
+        created = client.create_document(
+            name=document["name"],
+            description=document["description"],
+            instructions=document["instructions"],
+            content=document["content"],
+        )
+        existing_documents[document["name"]] = str(created["id"])
+
+    package = next(
+        (item for item in client.packages() if str(item.get("name")) == INCIDENT_KIT_NAME),
+        None,
+    )
+    if package is None:
+        package = client.create_package(
+            name=INCIDENT_KIT_NAME,
+            description="Shared read-only evidence, report, and memory rules.",
+            instructions=(
+                "Attach to every incident room. These are read-only templates and rules; "
+                "they do not grant tool or cluster permissions."
+            ),
+        )
+    package_id = str(package["id"])
+    attached = {str(item.get("id")) for item in client.package_documents(package_id)}
+    for document in incident_kit_documents():
+        document_id = existing_documents[document["name"]]
+        if document_id not in attached:
+            client.add_document_to_package(package_id, document_id)
+    return package_id
+
+
 def _console_setup(client: ConsoleClient, args: argparse.Namespace) -> int:
     directory = args.directory.expanduser().resolve()
     if not directory.is_dir():
@@ -523,6 +701,7 @@ def _console_setup(client: ConsoleClient, args: argparse.Namespace) -> int:
                 provider=args.provider,
                 instructions=instructions,
                 directory=str(directory),
+                auto_mode=args.auto_mode,
             )
             created[spec.name] = str(item["agent_id"])
             continue
@@ -533,6 +712,7 @@ def _console_setup(client: ConsoleClient, args: argparse.Namespace) -> int:
                 instructions=instructions,
                 directory=str(directory),
                 provider=args.provider,
+                auto_mode=args.auto_mode,
             )
             updated.append(spec.name)
 
@@ -553,6 +733,7 @@ def _console_setup(client: ConsoleClient, args: argparse.Namespace) -> int:
                 if isinstance(room_id, str) and room_id:
                     room_names[CORE_ROOMS[key]] = room_id
 
+    kit_package_id = _ensure_incident_kit(client)
     payload = {
         "console_url": client.settings.server_url,
         "controller": {
@@ -563,6 +744,7 @@ def _console_setup(client: ConsoleClient, args: argparse.Namespace) -> int:
         "updated_agents": updated,
         "existing_agents": sorted(name for name in existing if name not in created),
         "rooms": {key: room_names.get(name) for key, name in CORE_ROOMS.items()},
+        "incident_kit_package_id": kit_package_id,
         "directory": str(directory),
     }
     if args.json:
@@ -586,6 +768,17 @@ def _console_incident(client: ConsoleClient, args: argparse.Namespace) -> int:
         raise SwitchError(
             "Console agents are missing; run `kube-investigator switch console setup` first: "
             + ", ".join(missing)
+        )
+    core_rooms = {
+        str(item.get("name")): str(item.get("id"))
+        for item in client.rooms()
+        if str(item.get("name")) in CORE_ROOMS.values()
+    }
+    missing_rooms = [name for name in CORE_ROOMS.values() if name not in core_rooms]
+    if missing_rooms:
+        raise SwitchError(
+            "Console core rooms are missing; run `kube-investigator switch console setup` first: "
+            + ", ".join(missing_rooms)
         )
     incident_id = uuid4().hex[:8]
     room_name = f"incident-{incident_id}-{args.namespace}-{args.service}"
@@ -613,12 +806,34 @@ def _console_incident(client: ConsoleClient, args: argparse.Namespace) -> int:
     room_id = result.get("room_id")
     if not isinstance(room_id, str) or not room_id:
         raise SwitchError("Switch Console did not return an incident room id")
+
+    kit_package_id = _ensure_incident_kit(client)
+    installed = {str(item.get("id")) for item in client.room_packages(room_id)}
+    if kit_package_id not in installed:
+        client.attach_package_to_room(room_id, kit_package_id)
+
+    links = {str(item.get("target_room_id")) for item in client.linked_rooms(room_id)}
+    for target_name, label in (
+        (CORE_ROOMS["memory"], "approved incidents"),
+        (CORE_ROOMS["change"], "recent changes"),
+        (CORE_ROOMS["governance"], "trust and roi"),
+    ):
+        target_id = core_rooms[target_name]
+        if target_id not in links:
+            client.link_room(room_id, target_id, label)
+
     payload = {
         "room_id": room_id,
         "room_name": result.get("room_name") or room_name,
         "incident_id": incident_id,
         "scenario": args.scenario,
         "console_url": client.settings.server_url,
+        "incident_kit_package_id": kit_package_id,
+        "links": {
+            "memory": core_rooms[CORE_ROOMS["memory"]],
+            "change": core_rooms[CORE_ROOMS["change"]],
+            "governance": core_rooms[CORE_ROOMS["governance"]],
+        },
     }
     if args.json:
         print(json.dumps(payload, indent=2, sort_keys=True))
@@ -853,6 +1068,17 @@ def _compose_file(args: argparse.Namespace) -> Path:
     return Path("deploy/switch/compose.yaml")
 
 
+def _mattermost_values() -> dict[str, str]:
+    return {
+        "MATTERMOST_HOST_PORT": "8065",
+        "MATTERMOST_ADMIN_USER": "admin",
+        "MATTERMOST_ADMIN_PASSWORD": secrets.token_hex(24),
+        "MATTERMOST_TEAM_NAME": "switch",
+        "MATTERMOST_USER": "user",
+        "MATTERMOST_USER_PASSWORD": secrets.token_hex(24),
+    }
+
+
 def _ensure_switch_env(
     state_dir: Path,
     *,
@@ -864,6 +1090,21 @@ def _ensure_switch_env(
     state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     env_file = state_dir / ".env"
     if env_file.exists():
+        existing = {
+            line.split("=", 1)[0]
+            for line in env_file.read_text().splitlines()
+            if "=" in line and not line.lstrip().startswith("#")
+        }
+        additions = {
+            key: value for key, value in _mattermost_values().items() if key not in existing
+        }
+        if additions:
+            with env_file.open("a") as handle:
+                if env_file.stat().st_size and not env_file.read_text().endswith("\n"):
+                    handle.write("\n")
+                for key, value in additions.items():
+                    handle.write(f"{key}={value}\n")
+            os.chmod(env_file, 0o600)
         return env_file
     values = {
         "SWITCH_VERSION": version,
@@ -887,6 +1128,7 @@ def _ensure_switch_env(
         "GATEWAY_PUBLIC_URL": f"http://localhost:{api_port}",
         "GATEWAY_COOKIE_SECURE": "false",
         "TELEMETRY_ENABLED": "false",
+        **_mattermost_values(),
     }
     temporary = env_file.with_name(env_file.name + ".tmp")
     descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
