@@ -1,5 +1,6 @@
 """The isolated MCP container refuses root, writes, and the network."""
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -12,6 +13,11 @@ IMAGE = "kube-investigator-mcp:isolated"
 
 
 def _docker_available() -> bool:
+    # CI sets this in the matrix jobs: the dedicated `isolation` job already
+    # runs the full gate once, and rebuilding the image per Python version is
+    # pure duplication. Local runs leave it unset and get the gate inline.
+    if os.getenv("SKIP_CONTAINER_GATE") == "1":
+        return False
     if shutil.which("docker") is None:
         return False
     probe = subprocess.run(

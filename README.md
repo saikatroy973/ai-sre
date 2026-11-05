@@ -10,6 +10,11 @@ handoff is a room message from the real sender identity, and evidence/report doc
 that room. The system either supports a narrowly defined diagnosis with cited evidence or
 explicitly abstains. Fixture mode still needs no cluster, model credentials, or live telemetry.
 
+Except for the hardened MCP *server* container profile, local agents and credentials run under one
+operating-system account. Actor names, signed tokens, and Switch agent identities in this README
+are protocol/credential identities, not same-uid isolation boundaries; a compromised same-uid agent
+can read the others' credentials and forge that attribution.
+
 **Switch-native plan:** [docs/SWITCH_NATIVE_PLAN.md](docs/SWITCH_NATIVE_PLAN.md). The offline
 `demo` path remains credential-free; Switch-required flows fail closed when Switch is unavailable.
 
@@ -132,7 +137,9 @@ protocol harness, not the Console live path.
 The protocol harness creates six Switch agent identities with one API key each, stored locally in
 `.data/switch/agents.json` (mode 0600), one incident room per run, and targeted handoffs with
 trace/span IDs. It is covered by offline tests and is useful for CI, but it is not a substitute
-for Console-managed sessions.
+for Console-managed sessions. Those identities are protocol credentials: all six local processes
+run as the same OS user and can read the shared credential file, so this is not a same-uid
+isolation boundary either.
 
 ### Approved incident memory
 
@@ -191,8 +198,21 @@ kube-investigator switch memory audit --limit 20
 kube-investigator switch memory audit --verify
 ```
 
-Set `INVESTIGATOR_MCP_ACTOR` to label the caller. For a stronger credential check, set
-`INVESTIGATOR_MCP_PUBLIC_KEY` and pass a signed Ed25519 token in
+The other MCP tools write the same kind of hash-chained, actor-attributed entry to
+`tool-audit*.jsonl` in the writable data directory. `run` records the scope, question hash/length,
+investigation ID, and trace ID; `get`/`verify` record the investigation and evidence metadata; and
+`source_status` records the source and whether it is configured. The evidence SQLite store stays
+read-only, so serving a staged snapshot still produces an audit row. A failed audit write fails the
+tool closed, and the actor is the verified token subject rather than a fixed operator label. Inspect
+or verify the chain with:
+
+```sh
+kube-investigator audit --limit 20
+kube-investigator audit --verify
+```
+
+Set `INVESTIGATOR_MCP_ACTOR` to label the caller in development mode. For a signed credential
+check, set `INVESTIGATOR_MCP_PUBLIC_KEY` and pass a signed Ed25519 token in
 `INVESTIGATOR_MCP_ACTOR_TOKEN`; **every tool call except `health`** (run/get/verify/memory/
 source-status) then rejects missing, expired, wrong-tenant, and wrong-actor tokens:
 
@@ -204,7 +224,15 @@ python scripts/mcp_actor_token.py sign \
 ```
 
 The private key stays with the operator; the MCP server only receives the public key. This is a
-credential check, not a replacement for OS/process isolation.
+credential check, not a replacement for OS/process isolation. **Same-uid limit:** in the local
+Console profile all six agents run as the same operating-system user, and the mode-0600 configs plus
+the shared signing key under `.data/mcp-auth` are readable by that whole account. A compromised
+agent can therefore read another agent's token or mint one for any actor and forge the audit
+attribution. File modes protect against other users, not against a same-uid compromise. A signing
+service with an independent approval/identity check, or a separate uid/container per agent, is
+required before these tokens are an isolation boundary. The local Console profile does neither. The
+hardened MCP container profile isolates the server process; Console still launches the MCP server
+outside it, and the parent agents still share the operator uid.
 
 Approved records can be published directly to the Console `k8s-memory` room:
 
@@ -679,10 +707,20 @@ Hardening you should wire before showing the agent to anyone else:
 - **Per-agent actor tokens.** `kube-investigator switch console setup --directory . \
   --actor-tokens` gives every Console agent its own directory and an Ed25519-signed
   `INVESTIGATOR_MCP_ACTOR_TOKEN` (14-day TTL by default); every evidence tool except `health`
-  then authenticates against the signed identity and fails closed on missing, foreign, or
+  then authenticates against the signed credential and fails closed on missing, foreign, or
   expired tokens (`scripts/mcp_token_probe.py` proves `ok`/`missing`/`foreign` over a real
-  stdio spawn). Memory-search audit rows carry the signed actor; `run`/`get`/`verify` currently
-  authenticate without writing an actor-attributed audit record.
+  stdio spawn). Every authenticated call is actor-attributed in a hash-chained audit:
+  memory searches in `memory-audit*.jsonl`, and `run`/`get`/`verify`/`source_status` in
+  `tool-audit*.jsonl`. Audit rows go to the writable data directory, never the read-only
+  evidence store; `kube-investigator audit --verify` checks the tool chain. These are
+  per-agent credentials, **not a same-uid security boundary**: all six agents run as the
+  operator account and can read each other's configs and the shared signing key, so a
+  compromised agent can mint or replay another actor's token and forge those audit rows. Use a
+  signing service with independent approval/identity checks, or a separate uid/container per
+  agent, before treating actor names as identity isolation. A setup rerun re-signs tokens;
+  `--rotate-key` replaces the shared signing keypair, so restarted runtimes reject previously
+  issued tokens. `setup --refresh` without `--actor-tokens` refuses to downgrade wired agents
+  unless `--allow-shared-directory` is passed on purpose.
 - **Read-only evidence store.** The MCP `get`/`verify` tools open the SQLite evidence store in
   URI read-only mode: they cannot create, migrate, or write it, and a missing store is a clean
   refusal. `INVESTIGATOR_EVIDENCE_STORE_DIR` points them at a staged snapshot in isolation.

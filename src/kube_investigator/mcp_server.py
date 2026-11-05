@@ -12,6 +12,8 @@ logged.
 
 from __future__ import annotations
 
+import hashlib
+import sqlite3
 from dataclasses import replace
 from typing import Any, Literal
 from uuid import UUID
@@ -19,6 +21,7 @@ from uuid import UUID
 from mcp.server.fastmcp import FastMCP
 
 from kube_investigator import __version__
+from kube_investigator.audit import append_audit
 from kube_investigator.auth import Principal
 from kube_investigator.config import Settings
 from kube_investigator.coordinator import build_coordinator
@@ -49,15 +52,85 @@ def _error(exc: Exception) -> dict[str, Any]:
     return {"ok": False, "error": message}
 
 
-def _authorize(settings: Settings) -> str | None:
-    """Return the auth error for ``settings``; ``None`` when the actor is valid.
+def _bounded(value: Any) -> Any:
+    """Keep audit metadata small even when the caller sends huge arguments."""
+    if isinstance(value, str):
+        return value if len(value) <= 200 else value[:200] + "…"
+    if isinstance(value, list):
+        return [_bounded(item) for item in value[:20]]
+    if isinstance(value, dict):
+        return {str(key)[:40]: _bounded(item) for key, item in list(value.items())[:20]}
+    return value
 
-    Every tool except ``health`` is gated.  Without a configured public key
-    the server runs in local development mode and admits the env-labeled
-    actor, so ordinary local use keeps working.
+
+def _audit(
+    settings: Settings,
+    *,
+    tool: str,
+    actor: str | None,
+    outcome: str,
+    error: str | None = None,
+    **fields: Any,
+) -> bool:
+    """Append one actor-attributed tool audit row.
+
+    The row lives in the writable data directory, never in the evidence store:
+    ``get``/``verify`` keep their SQLite handle read-only even while they
+    record who asked.
     """
-    _, auth_error = authorize_actor(settings)
-    return auth_error
+    return append_audit(
+        settings.data_dir,
+        "tool-audit",
+        {
+            "tool": tool,
+            "actor": actor or "unauthenticated",
+            "outcome": outcome,
+            "error": error,
+            **{key: _bounded(value) for key, value in fields.items()},
+        },
+    )
+
+
+def _audited_result(
+    settings: Settings,
+    *,
+    tool: str,
+    actor: str | None,
+    outcome: str,
+    result: dict[str, Any],
+    error: str | None = None,
+    **fields: Any,
+) -> dict[str, Any]:
+    """Return ``result`` only after its audit row is durable."""
+    if not _audit(
+        settings,
+        tool=tool,
+        actor=actor,
+        outcome=outcome,
+        error=error,
+        **fields,
+    ):
+        return {"ok": False, "error": "tool audit failed"}
+    return result
+
+
+def _reject(
+    settings: Settings,
+    *,
+    tool: str,
+    actor: str | None,
+    error: str,
+    **fields: Any,
+) -> dict[str, Any]:
+    return _audited_result(
+        settings,
+        tool=tool,
+        actor=actor,
+        outcome="rejected",
+        result={"ok": False, "error": error},
+        error=error,
+        **fields,
+    )
 
 
 def _evidence_summary(evidence: list[Any]) -> list[dict[str, Any]]:
@@ -105,9 +178,16 @@ def run_investigation(
     room and no cluster change.
     """
     settings = _settings()
-    auth_error = _authorize(settings)
+    actor, auth_error = authorize_actor(settings)
+    audit_fields = {
+        "cluster": cluster,
+        "namespace": namespace,
+        "service": service,
+        "deployment": deployment,
+        "scenario": scenario,
+    }
     if auth_error is not None:
-        return {"ok": False, "error": auth_error}
+        return _reject(settings, tool="run", actor=actor, error=auth_error, **audit_fields)
     if scenario is not None and settings.backend == "fixture":
         settings = replace(settings, scenario=scenario)
     coordinator = None
@@ -122,9 +202,30 @@ def run_investigation(
         coordinator = build_coordinator(settings)
         investigation = coordinator.run(request, Principal.operator(settings))
         evidence = coordinator.store.evidence(investigation.id)
-        return _investigation_payload(investigation, evidence)
+        result = _investigation_payload(investigation, evidence)
+        return _audited_result(
+            settings,
+            tool="run",
+            actor=actor,
+            outcome="ok",
+            result=result,
+            investigation_id=str(investigation.id),
+            trace_id=investigation.trace_id,
+            question_sha256=hashlib.sha256(question.encode()).hexdigest(),
+            question_length=len(question),
+            **audit_fields,
+        )
     except Exception as exc:  # noqa: BLE001 - sanitized at the tool boundary
-        return _error(exc)
+        error = _error(exc)["error"]
+        return _audited_result(
+            settings,
+            tool="run",
+            actor=actor,
+            outcome="error",
+            result={"ok": False, "error": error},
+            error=error,
+            **audit_fields,
+        )
     finally:
         if coordinator is not None:
             coordinator.close()
@@ -135,23 +236,42 @@ def get_investigation(investigation_id: str) -> dict[str, Any]:
 
     The evidence store is opened strictly read-only: this tool can never
     create, upgrade, or write an investigation record — even accidentally.
+    The actor-attributed audit row goes to the writable data directory.
     """
     settings = _settings()
-    auth_error = _authorize(settings)
+    actor, auth_error = authorize_actor(settings)
+    audit_fields = {"investigation_id": investigation_id}
     if auth_error is not None:
-        return {"ok": False, "error": auth_error}
+        return _reject(settings, tool="get", actor=actor, error=auth_error, **audit_fields)
     try:
         started = UUID(investigation_id)
     except ValueError:
-        return {"ok": False, "error": "investigation_id must be a UUID"}
+        error = "investigation_id must be a UUID"
+        return _reject(settings, tool="get", actor=actor, error=error, **audit_fields)
     try:
         store = Store(settings.evidence_store_dir, readonly=True)
         investigation = store.get(started)
-    except InvestigatorError as exc:
-        return _error(exc)
+    except (InvestigatorError, sqlite3.Error, ValueError, OSError) as exc:
+        error = _error(exc)["error"]
+        return _reject(settings, tool="get", actor=actor, error=error, **audit_fields)
     if not Principal.operator(settings).can_read(investigation):
-        return {"ok": False, "error": "investigation not found"}
-    return _investigation_payload(investigation, store.evidence(investigation.id))
+        error = "investigation not found"
+        return _reject(settings, tool="get", actor=actor, error=error, **audit_fields)
+    try:
+        result = _investigation_payload(investigation, store.evidence(investigation.id))
+    except (InvestigatorError, sqlite3.Error, ValueError, OSError) as exc:
+        error = _error(exc)["error"]
+        return _reject(settings, tool="get", actor=actor, error=error, **audit_fields)
+    return _audited_result(
+        settings,
+        tool="get",
+        actor=actor,
+        outcome="ok",
+        result=result,
+        investigation_id=str(investigation.id),
+        trace_id=investigation.trace_id,
+        state=investigation.state.value,
+    )
 
 
 def verify_candidate(
@@ -165,9 +285,15 @@ def verify_candidate(
     freshness, scope, and the selector proof against the stored snapshots.
     """
     settings = _settings()
-    auth_error = _authorize(settings)
+    actor, auth_error = authorize_actor(settings)
+    audit_fields = {
+        "investigation_id": investigation_id,
+        "diagnosis": diagnosis,
+        "evidence_ids": list(evidence_ids),
+        "evidence_count": len(evidence_ids),
+    }
     if auth_error is not None:
-        return {"ok": False, "error": auth_error}
+        return _reject(settings, tool="verify", actor=actor, error=auth_error, **audit_fields)
     try:
         started = UUID(investigation_id)
         candidate = Candidate(
@@ -175,23 +301,42 @@ def verify_candidate(
             evidence_ids=[UUID(value) for value in evidence_ids],
         )
     except (ValueError, TypeError):
-        return {"ok": False, "error": "invalid investigation or evidence id"}
+        error = "invalid investigation or evidence id"
+        return _reject(settings, tool="verify", actor=actor, error=error, **audit_fields)
     try:
         store = Store(settings.evidence_store_dir, readonly=True)
         investigation = store.get(started)
-    except InvestigatorError as exc:
-        return _error(exc)
+    except (InvestigatorError, sqlite3.Error, ValueError, OSError) as exc:
+        error = _error(exc)["error"]
+        return _reject(settings, tool="verify", actor=actor, error=error, **audit_fields)
     if not Principal.operator(settings).can_read(investigation):
-        return {"ok": False, "error": "investigation not found"}
-    verification = EvidenceVerifier(settings).verify(
-        investigation, candidate, store.evidence(investigation.id)
-    )
-    return {
+        error = "investigation not found"
+        return _reject(settings, tool="verify", actor=actor, error=error, **audit_fields)
+    try:
+        verification = EvidenceVerifier(settings).verify(
+            investigation, candidate, store.evidence(investigation.id)
+        )
+    except (InvestigatorError, sqlite3.Error, ValueError, OSError) as exc:
+        error = _error(exc)["error"]
+        return _reject(settings, tool="verify", actor=actor, error=error, **audit_fields)
+    result = {
         "ok": True,
         "investigation_id": str(investigation.id),
         "verification": verification.model_dump(mode="json"),
         "read_only": True,
     }
+    return _audited_result(
+        settings,
+        tool="verify",
+        actor=actor,
+        outcome="ok",
+        result=result,
+        investigation_id=str(investigation.id),
+        diagnosis=diagnosis,
+        evidence_ids=list(evidence_ids),
+        evidence_count=len(evidence_ids),
+        passed=verification.passed,
+    )
 
 
 def search_memory(
@@ -210,46 +355,55 @@ def search_memory(
     a prior response to page through a stable result snapshot.
     """
     settings = _settings()
-    store = Store(settings.data_dir)
-    memory = MemoryStore(store)
+    try:
+        store = Store(settings.data_dir)
+        memory = MemoryStore(store)
+    except (InvestigatorError, sqlite3.Error, ValueError, OSError):
+        return {"ok": False, "error": "memory store unavailable"}
     actor, auth_error = authorize_actor(settings)
     offset = 0
     leads: list[Any] = []
 
     if auth_error is not None:
-        memory.audit_search(
-            actor="unauthenticated",
-            requested_tenant=tenant,
-            effective_tenant=tenant or settings.tenant,
-            cluster=cluster,
-            namespace=namespace,
-            query=query,
-            limit=limit,
-            cursor=cursor,
-            offset=0,
-            outcome="rejected",
-            leads=[],
-            error=auth_error,
-        )
+        try:
+            memory.audit_search(
+                actor="unauthenticated",
+                requested_tenant=tenant,
+                effective_tenant=tenant or settings.tenant,
+                cluster=cluster,
+                namespace=namespace,
+                query=query,
+                limit=limit,
+                cursor=cursor,
+                offset=0,
+                outcome="rejected",
+                leads=[],
+                error=auth_error,
+            )
+        except (sqlite3.Error, OSError, ValueError):
+            pass
         return {"ok": False, "error": auth_error}
 
     assert actor is not None
 
     def audit(outcome: str, error: str | None = None) -> bool:
-        return memory.audit_search(
-            actor=actor,
-            requested_tenant=tenant,
-            effective_tenant=tenant or settings.tenant,
-            cluster=cluster,
-            namespace=namespace,
-            query=query,
-            limit=limit,
-            cursor=cursor,
-            offset=offset,
-            outcome=outcome,
-            leads=leads,
-            error=error,
-        )
+        try:
+            return memory.audit_search(
+                actor=actor,
+                requested_tenant=tenant,
+                effective_tenant=tenant or settings.tenant,
+                cluster=cluster,
+                namespace=namespace,
+                query=query,
+                limit=limit,
+                cursor=cursor,
+                offset=offset,
+                outcome=outcome,
+                leads=leads,
+                error=error,
+            )
+        except (sqlite3.Error, OSError, ValueError):
+            return False
 
     def fail(message: str) -> dict[str, Any]:
         audit("rejected", message)
@@ -286,6 +440,8 @@ def search_memory(
         )
     except InvestigatorError as exc:
         return fail(str(exc))
+    except (sqlite3.Error, OSError):
+        return fail("memory search failed")
     except ValueError:
         return fail("invalid memory search scope")
     if not audit("ok"):
@@ -305,18 +461,35 @@ def search_memory(
 def source_status(source: Literal["telemetry", "change", "kubernetes"]) -> dict[str, Any]:
     """Report whether a live source is configured, without inventing evidence."""
     settings = _settings()
-    auth_error = _authorize(settings)
+    actor, auth_error = authorize_actor(settings)
+    audit_fields = {"source": source}
     if auth_error is not None:
-        return {"ok": False, "error": auth_error}
+        return _reject(
+            settings,
+            tool="source_status",
+            actor=actor,
+            error=auth_error,
+            **audit_fields,
+        )
     if source == "kubernetes":
-        return {
+        result = {
             "ok": True,
             "source": source,
             "configured": settings.backend == "kubernetes",
             "backend": settings.backend,
             "read_only": True,
         }
-    return {
+        return _audited_result(
+            settings,
+            tool="source_status",
+            actor=actor,
+            outcome="ok",
+            result=result,
+            configured=result["configured"],
+            backend=settings.backend,
+            **audit_fields,
+        )
+    result = {
         "ok": True,
         "source": source,
         "configured": False,
@@ -329,6 +502,16 @@ def source_status(source: Literal["telemetry", "change", "kubernetes"]) -> dict[
         "evidence_ids": [],
         "read_only": True,
     }
+    return _audited_result(
+        settings,
+        tool="source_status",
+        actor=actor,
+        outcome="ok",
+        result=result,
+        configured=result["configured"],
+        status=result["status"],
+        **audit_fields,
+    )
 
 
 @mcp.tool()

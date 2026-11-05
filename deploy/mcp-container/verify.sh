@@ -6,6 +6,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 IMAGE="${1:-kube-investigator-mcp:isolated}"
+DOCKERFILE="${DOCKERFILE:-deploy/mcp-container/Dockerfile}"
 
 # The staging demo needs the installed console script; CI installs it with
 # pip -e, local runs usually have .venv next to the repo.
@@ -102,7 +103,7 @@ for key, value in values.items():
 env_file.write_text("".join(f"{key}={value}\n" for key, value in sorted(values.items())))
 PY
 
-docker build --quiet -f deploy/mcp-container/Dockerfile -t "$IMAGE" .
+docker build --quiet -f "$DOCKERFILE" -t "$IMAGE" .
 
 PROBES=$(docker run --rm \
   --read-only \

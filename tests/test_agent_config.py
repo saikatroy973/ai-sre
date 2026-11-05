@@ -200,3 +200,52 @@ def test_wiring_is_repeatable_and_rotates_tokens(wired):
         ):
             os.environ.pop(key, None)
     assert (actor, error) == (AGENT_NAMES[0], None)
+
+
+def test_rotation_replaces_the_signing_key_and_invalidates_old_tokens(wired):
+    from cryptography.exceptions import InvalidSignature
+
+    from kube_investigator.mcp_auth import verify_actor_token
+
+    data_dir, auth_dir, _directories = wired
+    config_path = agent_directory(data_dir, "incident-commander") / "opencode.json"
+    before = load_config_environment(config_path)
+
+    write_agent_directories(
+        agent_names=AGENT_NAMES,
+        data_dir=data_dir,
+        auth_dir=auth_dir,
+        python_bin=Path("/venv/bin/python"),
+        token_ttl=60,
+        rotate_key=True,
+    )
+    after = load_config_environment(config_path)
+    assert after["INVESTIGATOR_MCP_PUBLIC_KEY"] != before["INVESTIGATOR_MCP_PUBLIC_KEY"]
+    assert after["INVESTIGATOR_MCP_ACTOR_TOKEN"] != before["INVESTIGATOR_MCP_ACTOR_TOKEN"]
+    payload = verify_actor_token(
+        after["INVESTIGATOR_MCP_ACTOR_TOKEN"],
+        after["INVESTIGATOR_MCP_PUBLIC_KEY"],
+    )
+    assert payload["actor"] == "incident-commander"
+    with pytest.raises(InvalidSignature):
+        verify_actor_token(
+            before["INVESTIGATOR_MCP_ACTOR_TOKEN"],
+            after["INVESTIGATOR_MCP_PUBLIC_KEY"],
+        )
+
+
+def test_existing_key_material_permissions_are_tightened(wired):
+    data_dir, auth_dir, _directories = wired
+    key_path = auth_dir / "mcp-actor-private.pem"
+    os.chmod(auth_dir, 0o755)
+    os.chmod(key_path, 0o644)
+
+    write_agent_directories(
+        agent_names=AGENT_NAMES,
+        data_dir=data_dir,
+        auth_dir=auth_dir,
+        python_bin=Path("/venv/bin/python"),
+        token_ttl=60,
+    )
+    assert stat.S_IMODE(auth_dir.stat().st_mode) == 0o700
+    assert stat.S_IMODE(key_path.stat().st_mode) == 0o600

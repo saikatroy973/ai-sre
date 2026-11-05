@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Generate Ed25519 keys and signed MCP actor tokens."""
+"""Generate Ed25519 keys and signed MCP actor tokens.
+
+These tokens authenticate an MCP caller. They are not a same-uid isolation
+boundary: agents running as one OS user can read each other's token configs and
+the signing key, so a compromised agent can mint or replay another actor's
+token. Use a signing service with independent approval/identity checks, or a
+separate uid/container per agent, before treating actor names as identity.
+"""
 
 from __future__ import annotations
 

@@ -60,6 +60,7 @@ from typing import Any
 REPO = Path(__file__).resolve().parents[1]
 KUBE = REPO / ".venv" / "bin" / "kube-investigator"
 DRILL_TIMESTAMP = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+HISTORY_LIMIT = 100
 
 QUESTION = "Why is checkout failing?"
 SCOPE = {
@@ -496,12 +497,23 @@ def part_switch_restart(data_dir: Path | None) -> dict[str, Any]:
     incident_rooms: dict[str, list[dict[str, Any]]] = {}
     try:
         # Every core room whose history can be read is part of the
-        # byte-for-byte contract, not a single sample.
+        # byte-for-byte contract, not a single sample.  The window must not
+        # saturate, or "preserved" would silently mean "the newest 100".
         for room_id in room_ids.values():
             try:
-                incident_rooms[room_id] = runtime.history("incident-commander", room_id, limit=3)
+                incident_rooms[room_id] = runtime.history(
+                    "incident-commander", room_id, limit=HISTORY_LIMIT
+                )
             except Exception:
                 continue
+        saturated = [
+            room_id for room_id, rows in incident_rooms.items() if len(rows) >= HISTORY_LIMIT
+        ]
+        if saturated:
+            _fail(
+                f"history window saturated at {HISTORY_LIMIT} events for {saturated[:3]}; "
+                "the drill cannot claim a full byte-for-byte comparison"
+            )
         candidates = [rid for rid, rows in incident_rooms.items() if rows]
         if not candidates:
             _fail("could not read any room history before the restart")
@@ -534,7 +546,7 @@ def part_switch_restart(data_dir: Path | None) -> dict[str, Any]:
 
         _wait_for(healthy, 120, "Switch API healthy after restart")
         for room_id, before_rows in incident_rooms.items():
-            after_rows = runtime.history("incident-commander", room_id, limit=3)
+            after_rows = runtime.history("incident-commander", room_id, limit=HISTORY_LIMIT)
             if json.dumps(after_rows, sort_keys=True) != json.dumps(before_rows, sort_keys=True):
                 _fail(f"history changed across the Switch API restart: {room_id}")
         print(

@@ -2,7 +2,9 @@
 
 Switch is the collaboration and governance plane.  The agent names below are the
 identities registered with Switch; the Python processes in this repository act
-for those identities but do not replace them.
+for those identities but do not replace them.  In the local profile all of those
+processes run as one OS user and share one credential store, so the names are
+protocol identities, not same-uid isolation boundaries.
 """
 
 from __future__ import annotations
@@ -291,7 +293,9 @@ AGENTS: tuple[AgentSpec, ...] = (
 
 AGENTS_BY_NAME: dict[str, AgentSpec] = {agent.name: agent for agent in AGENTS}
 
-# The room's members. Every specialist is a distinct Switch identity and API key.
+# The room's members. Every specialist is a distinct Switch protocol identity
+# and API key, but local agents share one OS account, so this is not a same-uid
+# isolation boundary.
 ROOM_AGENTS: tuple[str, ...] = tuple(agent.name for agent in AGENTS)
 
 CORE_ROOMS: dict[str, str] = {

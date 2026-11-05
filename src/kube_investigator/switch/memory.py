@@ -23,11 +23,16 @@ from pathlib import Path
 from typing import Any, Literal
 from uuid import UUID
 
-try:
-    import fcntl
-except ImportError:  # pragma: no cover - non-Unix fallback
-    fcntl = None
-
+from kube_investigator.audit import (
+    append_audit,
+    audit_files,
+)
+from kube_investigator.audit import (
+    read_audit as read_jsonl_audit,
+)
+from kube_investigator.audit import (
+    verify_audit as verify_jsonl_audit,
+)
 from kube_investigator.errors import ConfigurationError, NotFoundError
 from kube_investigator.models import (
     HistoricalLead,
@@ -513,31 +518,7 @@ class MemoryStore:
         return leads, next_cursor
 
     def _audit_files(self) -> list[Path]:
-        data_dir = self.store.path.parent
-        archived = sorted(data_dir.glob("memory-audit.*.jsonl"))
-        current = data_dir / "memory-audit.jsonl"
-        if current.exists():
-            archived.append(current)
-        return archived
-
-    @staticmethod
-    def _last_audit_hash(files: list[Path]) -> str:
-        for path in reversed(files):
-            try:
-                lines = path.read_text(encoding="utf-8").splitlines()
-            except OSError:
-                continue
-            for line in reversed(lines):
-                if not line.strip():
-                    continue
-                try:
-                    entry = json.loads(line)
-                except ValueError:
-                    continue
-                value = entry.get("entry_sha256")
-                if isinstance(value, str):
-                    return value
-        return ""
+        return audit_files(self.store.path.parent, "memory-audit")
 
     def audit_search(
         self,
@@ -556,117 +537,32 @@ class MemoryStore:
         error: str | None = None,
     ) -> bool:
         """Append a metadata-only, hash-chained memory read audit record."""
-        data_dir = self.store.path.parent
-        try:
-            data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-            max_bytes = int(os.getenv("INVESTIGATOR_MCP_AUDIT_MAX_BYTES", "5000000"))
-        except (OSError, ValueError):
-            return False
-        try:
-            lock_descriptor = os.open(
-                data_dir / "memory-audit.lock",
-                os.O_APPEND | os.O_CREAT | os.O_RDWR,
-                0o600,
-            )
-            with os.fdopen(lock_descriptor, "a+", encoding="utf-8") as lock:
-                if fcntl is not None:
-                    fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-                files = self._audit_files()
-                previous = self._last_audit_hash(files)
-                current = data_dir / "memory-audit.jsonl"
-                if max_bytes > 0 and current.exists() and current.stat().st_size >= max_bytes:
-                    archive = data_dir / (
-                        "memory-audit."
-                        + utc_now().strftime("%Y%m%dT%H%M%S%fZ")
-                        + "."
-                        + secrets.token_hex(4)
-                        + ".jsonl"
-                    )
-                    current.rename(archive)
-                body = {
-                    "ts": utc_now().isoformat(),
-                    "actor": actor,
-                    "requested_tenant": requested_tenant,
-                    "effective_tenant": effective_tenant,
-                    "cluster": cluster,
-                    "namespace": namespace,
-                    "query_sha256": hashlib.sha256(query.encode()).hexdigest(),
-                    "query_length": len(query),
-                    "limit": limit,
-                    "cursor": cursor,
-                    "offset": offset,
-                    "outcome": outcome,
-                    "count": len(leads),
-                    "record_ids": [str(lead.record_id) for lead in leads],
-                    "error": error,
-                    "prev_sha256": previous,
-                }
-                serialized = json.dumps(body, sort_keys=True, separators=(",", ":"))
-                entry = {
-                    **body,
-                    "entry_sha256": hashlib.sha256(serialized.encode()).hexdigest(),
-                }
-                descriptor = os.open(
-                    current,
-                    os.O_APPEND | os.O_CREAT | os.O_WRONLY,
-                    0o600,
-                )
-                with os.fdopen(descriptor, "a", encoding="utf-8") as handle:
-                    handle.write(json.dumps(entry, sort_keys=True, separators=(",", ":")) + "\n")
-                if fcntl is not None:
-                    fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
-        except OSError:
-            return False
-        return True
+        return append_audit(
+            self.store.path.parent,
+            "memory-audit",
+            {
+                "actor": actor,
+                "requested_tenant": requested_tenant,
+                "effective_tenant": effective_tenant,
+                "cluster": cluster,
+                "namespace": namespace,
+                "query_sha256": hashlib.sha256(query.encode()).hexdigest(),
+                "query_length": len(query),
+                "limit": limit,
+                "cursor": cursor,
+                "offset": offset,
+                "outcome": outcome,
+                "count": len(leads),
+                "record_ids": [str(lead.record_id) for lead in leads],
+                "error": error,
+            },
+        )
 
     def read_audit(self, limit: int = 20) -> list[dict[str, Any]]:
-        entries: list[dict[str, Any]] = []
-        for path in self._audit_files():
-            try:
-                lines = path.read_text(encoding="utf-8").splitlines()
-            except OSError:
-                continue
-            for line in lines:
-                if not line.strip():
-                    continue
-                try:
-                    entry = json.loads(line)
-                except ValueError:
-                    continue
-                if isinstance(entry, dict):
-                    entries.append(entry)
-        return entries[-max(1, limit) :]
+        return read_jsonl_audit(self.store.path.parent, "memory-audit", limit)
 
     def verify_audit(self) -> tuple[bool, list[str]]:
-        errors: list[str] = []
-        previous = ""
-        for path in self._audit_files():
-            try:
-                lines = path.read_text(encoding="utf-8").splitlines()
-            except OSError as exc:
-                errors.append(f"{path.name}: {type(exc).__name__}")
-                continue
-            for line_number, line in enumerate(lines, start=1):
-                if not line.strip():
-                    continue
-                try:
-                    entry = json.loads(line)
-                except ValueError:
-                    errors.append(f"{path.name}:{line_number}: invalid JSON")
-                    continue
-                if not isinstance(entry, dict):
-                    errors.append(f"{path.name}:{line_number}: invalid entry")
-                    continue
-                stored = entry.pop("entry_sha256", None)
-                if entry.get("prev_sha256") != previous:
-                    errors.append(f"{path.name}:{line_number}: chain break")
-                serialized = json.dumps(entry, sort_keys=True, separators=(",", ":"))
-                expected = hashlib.sha256(serialized.encode()).hexdigest()
-                if stored != expected:
-                    errors.append(f"{path.name}:{line_number}: hash mismatch")
-                if isinstance(stored, str):
-                    previous = stored
-        return not errors, errors
+        return verify_jsonl_audit(self.store.path.parent, "memory-audit")
 
     def render_leads(self, leads: list[HistoricalLead]) -> str:
         """Render leads as untrusted historical data, never as instructions."""

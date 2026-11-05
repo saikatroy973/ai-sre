@@ -256,7 +256,11 @@ class FakeConsoleClient:
         agent = {
             "agent_id": f"{kwargs['name']}-id",
             "name": kwargs["name"],
-            "definition": {"provider": kwargs["provider"]},
+            "definition": {
+                "provider": kwargs["provider"],
+                "directory": kwargs.get("directory"),
+                "isolation": "shared",
+            },
             "desired_state": "running",
         }
         self._agents.append(agent)
@@ -264,6 +268,13 @@ class FakeConsoleClient:
 
     def update_agent(self, agent_id, **kwargs):
         self.update_calls.append({"agent_id": agent_id, **kwargs})
+        for agent in self._agents:
+            if agent["agent_id"] == agent_id:
+                definition = agent.setdefault("definition", {})
+                if "directory" in kwargs:
+                    definition["directory"] = kwargs["directory"]
+                if "provider" in kwargs:
+                    definition["provider"] = kwargs["provider"]
         return {"agent_id": agent_id, **kwargs}
 
     def create_rooms_from_yaml(self, template):
@@ -402,6 +413,8 @@ def test_console_setup_actor_tokens_wires_and_updates_existing_agents(
     payload = json.loads(capsys.readouterr().out)
     assert payload["actor_tokens_enabled"] is True
     assert payload["token_ttl_seconds"] == 1209600
+    assert "same-uid" in payload["actor_token_boundary"]
+    assert "shared key" in payload["actor_token_boundary"]
     assert sorted(payload["agent_directories"]) == [
         "change-analyst",
         "cluster-investigator",
@@ -447,3 +460,75 @@ def test_console_setup_without_actor_tokens_never_rewrites_agents(tmp_path, monk
     assert payload["actor_tokens_enabled"] is False
     assert payload["agent_directories"] == {}
     assert shared.update_calls == []
+
+
+def test_console_setup_actor_tokens_prints_the_same_uid_limit(tmp_path, monkeypatch, capsys):
+    _configure(monkeypatch, tmp_path)
+    assert main(["switch", "console", "setup", "--actor-tokens"]) == 0
+    output = capsys.readouterr().out
+    assert "Credential limit" in output
+    assert "same OS user" in output
+    assert "signing service" in output
+
+
+def test_console_setup_signs_tokens_for_the_configured_tenant(tmp_path, monkeypatch, capsys):
+    _configure(monkeypatch, tmp_path)
+    monkeypatch.setenv("INVESTIGATOR_TENANT", "prod")
+    assert main(["switch", "console", "setup", "--actor-tokens", "--json"]) == 0
+    capsys.readouterr()
+    from kube_investigator.mcp_auth import verify_actor_token
+    from kube_investigator.switch.agent_config import load_config_environment
+
+    environment = load_config_environment(
+        tmp_path / ".data" / "console-agents" / "incident-commander" / "opencode.json"
+    )
+    assert environment["INVESTIGATOR_TENANT"] == "prod"
+    payload = verify_actor_token(
+        environment["INVESTIGATOR_MCP_ACTOR_TOKEN"],
+        environment["INVESTIGATOR_MCP_PUBLIC_KEY"],
+    )
+    assert payload["tenant"] == "prod"
+    assert payload["actor"] == "incident-commander"
+
+
+def test_rotate_key_requires_actor_tokens(tmp_path, monkeypatch, capsys):
+    _configure(monkeypatch, tmp_path)
+    assert main(["switch", "console", "setup", "--rotate-key"]) == 1
+    assert "--rotate-key requires --actor-tokens" in capsys.readouterr().err
+
+
+def test_setup_refuses_to_silently_downgrade_per_agent_wiring(tmp_path, monkeypatch, capsys):
+    _configure(monkeypatch, tmp_path)
+    assert main(["switch", "console", "setup", "--actor-tokens"]) == 0
+    capsys.readouterr()
+    shared = FakeConsoleClient.instances[-1]
+    monkeypatch.setattr(
+        "kube_investigator.cli.ConsoleClient",
+        lambda configuration: shared,
+    )
+    assert main(["switch", "console", "setup", "--refresh"]) == 1
+    assert "--allow-shared-directory" in capsys.readouterr().err
+
+    assert (
+        main(
+            [
+                "switch",
+                "console",
+                "setup",
+                "--refresh",
+                "--allow-shared-directory",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["actor_tokens_enabled"] is False
+    assert shared.update_calls
+    assert {call["directory"] for call in shared.update_calls} == {str(tmp_path)}
+
+
+def test_setup_warns_when_wiring_the_shared_unauthenticated_config(tmp_path, monkeypatch, capsys):
+    _configure(monkeypatch, tmp_path)
+    assert main(["switch", "console", "setup"]) == 0
+    assert "shared MCP config without per-agent credentials" in capsys.readouterr().err

@@ -180,3 +180,164 @@ def test_every_evidence_tool_requires_the_signed_token(monkeypatch, tmp_path):
     monkeypatch.delenv("INVESTIGATOR_MCP_ACTOR_TOKEN", raising=False)
     health = asyncio.run(mcp.call_tool("kube_investigator_health", {}))
     assert "ok" in json.dumps(health, default=str)
+
+
+def test_every_authenticated_tool_writes_actor_attributed_audit(monkeypatch, tmp_path):
+    from kube_investigator.audit import read_audit, verify_audit
+    from kube_investigator.mcp_server import (
+        get_investigation,
+        run_investigation,
+        source_status,
+        verify_candidate,
+    )
+
+    private_key, public_key = keypair()
+    data_dir = tmp_path / "data"
+    monkeypatch.setenv("INVESTIGATOR_DATA_DIR", str(data_dir))
+    monkeypatch.setenv("INVESTIGATOR_BACKEND", "fixture")
+    monkeypatch.setenv("INVESTIGATOR_SCENARIO", "selector-mismatch")
+    monkeypatch.setenv("INVESTIGATOR_REASONER", "deterministic")
+    monkeypatch.setenv("INVESTIGATOR_SWITCH_MODE", "off")
+    monkeypatch.setenv("INVESTIGATOR_MCP_PUBLIC_KEY", public_key)
+    monkeypatch.setenv("INVESTIGATOR_MCP_ACTOR", "incident-commander")
+    monkeypatch.setenv(
+        "INVESTIGATOR_MCP_ACTOR_TOKEN",
+        token(private_key, actor="incident-commander", tenant="local"),
+    )
+
+    run = run_investigation(
+        question="Why is checkout failing?",
+        cluster="demo-cluster",
+        namespace="shop",
+        service="checkout",
+        deployment="checkout",
+    )
+    assert run["ok"] is True
+    assert get_investigation(run["investigation_id"])["ok"] is True
+    evidence_ids = [item["id"] for item in run["evidence"]]
+    assert (
+        verify_candidate(run["investigation_id"], "service_selector_mismatch", evidence_ids)["ok"]
+        is True
+    )
+    assert source_status("kubernetes")["ok"] is True
+
+    entries = read_audit(data_dir, "tool-audit", limit=10)
+    assert [entry["tool"] for entry in entries] == ["run", "get", "verify", "source_status"]
+    assert {entry["actor"] for entry in entries} == {"incident-commander"}
+    assert {entry["outcome"] for entry in entries} == {"ok"}
+    assert entries[0]["investigation_id"] == run["investigation_id"]
+    assert entries[0]["trace_id"] == run["trace_id"]
+    assert entries[0]["cluster"] == "demo-cluster"
+    assert entries[0]["namespace"] == "shop"
+    assert entries[0]["service"] == "checkout"
+    assert entries[0]["question_sha256"]
+    assert "question" not in entries[0]
+    assert entries[2]["evidence_count"] == len(evidence_ids)
+    assert entries[2]["passed"] is True
+
+    ok, errors = verify_audit(data_dir, "tool-audit")
+    assert ok is True
+    assert errors == []
+
+
+def test_cross_agent_read_keeps_each_signed_actor_distinct(monkeypatch, tmp_path):
+    from kube_investigator.audit import read_audit
+    from kube_investigator.mcp_server import get_investigation, run_investigation
+
+    private_key, public_key = keypair()
+    data_dir = tmp_path / "data"
+    monkeypatch.setenv("INVESTIGATOR_DATA_DIR", str(data_dir))
+    monkeypatch.setenv("INVESTIGATOR_BACKEND", "fixture")
+    monkeypatch.setenv("INVESTIGATOR_SWITCH_MODE", "off")
+    monkeypatch.setenv("INVESTIGATOR_MCP_PUBLIC_KEY", public_key)
+
+    monkeypatch.setenv("INVESTIGATOR_MCP_ACTOR", "incident-commander")
+    monkeypatch.setenv(
+        "INVESTIGATOR_MCP_ACTOR_TOKEN",
+        token(private_key, actor="incident-commander", tenant="local"),
+    )
+    run = run_investigation(
+        question="Why is checkout failing?",
+        cluster="demo-cluster",
+        namespace="shop",
+        service="checkout",
+        deployment="checkout",
+    )
+    assert run["ok"] is True
+
+    monkeypatch.setenv("INVESTIGATOR_MCP_ACTOR", "evidence-verifier")
+    monkeypatch.setenv(
+        "INVESTIGATOR_MCP_ACTOR_TOKEN",
+        token(private_key, actor="evidence-verifier", tenant="local"),
+    )
+    assert get_investigation(run["investigation_id"])["ok"] is True
+
+    entries = read_audit(data_dir, "tool-audit", limit=10)
+    assert [(entry["tool"], entry["actor"]) for entry in entries] == [
+        ("run", "incident-commander"),
+        ("get", "evidence-verifier"),
+    ]
+
+
+def test_rejected_tool_calls_are_audited_as_unauthenticated(monkeypatch, tmp_path):
+    from kube_investigator.audit import read_audit
+    from kube_investigator.mcp_server import (
+        get_investigation,
+        run_investigation,
+        source_status,
+        verify_candidate,
+    )
+
+    private_key, public_key = keypair()
+    data_dir = tmp_path / "data"
+    monkeypatch.setenv("INVESTIGATOR_DATA_DIR", str(data_dir))
+    monkeypatch.setenv("INVESTIGATOR_SWITCH_MODE", "off")
+    monkeypatch.setenv("INVESTIGATOR_MCP_PUBLIC_KEY", public_key)
+    monkeypatch.setenv("INVESTIGATOR_MCP_ACTOR", "incident-commander")
+    monkeypatch.delenv("INVESTIGATOR_MCP_ACTOR_TOKEN", raising=False)
+
+    run_investigation(
+        question="Why is checkout failing?",
+        cluster="demo-cluster",
+        namespace="shop",
+        service="checkout",
+        deployment="checkout",
+    )
+    get_investigation("00000000-0000-0000-0000-000000000001")
+    verify_candidate(
+        "00000000-0000-0000-0000-000000000001",
+        "service_selector_mismatch",
+        [],
+    )
+    source_status("telemetry")
+
+    entries = read_audit(data_dir, "tool-audit", limit=10)
+    assert [entry["tool"] for entry in entries] == ["run", "get", "verify", "source_status"]
+    assert {entry["actor"] for entry in entries} == {"unauthenticated"}
+    assert {entry["outcome"] for entry in entries} == {"rejected"}
+    assert {entry["error"] for entry in entries} == {"MCP actor token is required"}
+
+
+def test_audit_failure_fails_the_tool_closed(monkeypatch, tmp_path):
+    from kube_investigator import mcp_server
+
+    monkeypatch.setenv("INVESTIGATOR_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("INVESTIGATOR_BACKEND", "fixture")
+    monkeypatch.setenv("INVESTIGATOR_SWITCH_MODE", "off")
+    monkeypatch.setattr(mcp_server, "append_audit", lambda *args, **kwargs: False)
+
+    result = mcp_server.source_status("kubernetes")
+    assert result == {"ok": False, "error": "tool audit failed"}
+
+
+def test_tool_audit_bounds_caller_supplied_metadata(monkeypatch, tmp_path):
+    from kube_investigator.audit import read_audit
+    from kube_investigator.mcp_server import get_investigation
+
+    data_dir = tmp_path / "data"
+    monkeypatch.setenv("INVESTIGATOR_DATA_DIR", str(data_dir))
+    monkeypatch.setenv("INVESTIGATOR_SWITCH_MODE", "off")
+    assert get_investigation("x" * 10_000)["ok"] is False
+    entries = read_audit(data_dir, "tool-audit", limit=5)
+    assert len(entries) == 1
+    assert len(entries[0]["investigation_id"]) <= 201

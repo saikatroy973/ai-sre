@@ -3,7 +3,9 @@
 Keys are returned once by registration and are stored locally in a mode-0600
 file.  They are never printed, persisted in investigation records, or sent to a
 model.  The file is an operational credential store, not a database: losing it
-means re-registering or rotating the agent keys in Switch.
+means re-registering or rotating the agent keys in Switch.  Because local agents
+share one OS account, this store is not a same-uid isolation boundary: any
+agent process that can read the file can act as any registered identity.
 """
 
 from __future__ import annotations

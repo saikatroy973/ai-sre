@@ -6,6 +6,13 @@ The MCP server is a stdio child of the agent process.  When
 tenant.  The private key stays with the operator; the MCP server only needs
 the public key.  This is a credential check, not a replacement for
 OS/process isolation.
+
+Same-uid limit: agents that share one operating-system account can read each
+other's mode-0600 token configs and, when it is stored under that account, the
+shared signing key.  A compromised same-uid agent can therefore present another
+actor's token or mint a fresh one and forge attribution.  A signing service
+with an independent approval/identity check, or a separate uid/container per
+agent, is required before actor names are a security boundary.
 """
 
 from __future__ import annotations
@@ -91,6 +98,9 @@ def generate_actor_keypair(out_dir: Path) -> tuple[Path, str]:
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
     out_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    # Enforce the private modes on every run: a pre-existing key or directory
+    # with looser permissions must not be silently reused.
+    os.chmod(out_dir, 0o700)
     private_path = out_dir / PRIVATE_KEY_NAME
     if private_path.exists():
         key = serialization.load_pem_private_key(private_path.read_bytes(), password=None)
@@ -105,7 +115,7 @@ def generate_actor_keypair(out_dir: Path) -> tuple[Path, str]:
                 encryption_algorithm=serialization.NoEncryption(),
             )
         )
-        os.chmod(private_path, 0o600)
+    os.chmod(private_path, 0o600)
     public_raw = key.public_key().public_bytes(
         encoding=serialization.Encoding.Raw,
         format=serialization.PublicFormat.Raw,

@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import sqlite3
 import sys
 from uuid import UUID
 
@@ -641,3 +642,30 @@ def test_missing_evidence_store_fails_closed_without_inventing(tmp_path, monkeyp
     assert "does not exist" in missing["error"]
     # The refused store directory was never created either.
     assert not (tmp_path / "missing-mount").exists()
+
+
+def test_foreign_evidence_store_is_sanitized(monkeypatch, tmp_path):
+    """A file that is not an evidence DB is a clean refusal, not a stack trace."""
+    configure_fixture(monkeypatch, tmp_path)
+    foreign = tmp_path / "foreign"
+    foreign.mkdir()
+    connection = sqlite3.connect(foreign / "investigator.sqlite3")
+    connection.execute("CREATE TABLE unrelated (x)")
+    connection.commit()
+    connection.close()
+    monkeypatch.setenv("INVESTIGATOR_EVIDENCE_STORE_DIR", str(foreign))
+
+    missing = get_investigation("00000000-0000-0000-0000-000000000001")
+    assert missing == {"ok": False, "error": "investigation tool failed"}
+    missing = verify_candidate(
+        "00000000-0000-0000-0000-000000000001", "service_selector_mismatch", []
+    )
+    assert missing == {"ok": False, "error": "investigation tool failed"}
+
+
+def test_unavailable_memory_store_is_sanitized(monkeypatch, tmp_path):
+    blocking = tmp_path / "data-is-a-file"
+    blocking.write_text("not a directory")
+    monkeypatch.setenv("INVESTIGATOR_DATA_DIR", str(blocking))
+    result = search_memory(cluster="demo-cluster", namespace="shop", query="checkout")
+    assert result == {"ok": False, "error": "memory store unavailable"}

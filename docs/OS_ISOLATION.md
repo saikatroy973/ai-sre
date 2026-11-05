@@ -111,19 +111,28 @@ create, migrate, upgrade, or write the database it reads — a write attempt
 fails with `attempt to write a readonly database`, and a missing store is a
 clean, honest refusal instead of a silent reparent. `INVESTIGATOR_EVIDENCE_STORE_DIR`
 points the tools at a staged snapshot when `data_dir` is not the mounted
-one. The memory search keeps a writable tmpfs store for its rotating audit
-trail, as documented in the per-tool code.
+one. Memory search and the other MCP tools keep a writable tmpfs data
+directory for their rotating, hash-chained audit trails; the audit rows name
+the verified actor and never go into the evidence database.
 
 ## Combining with actor tokens
 
 OS isolation bounds *what the process can do*; Ed25519 actor tokens
 (`src/kube_investigator/mcp_auth.py`, wiring via
-`switch console setup --actor-tokens`) bound *who is being seen*. Every MCP
-tool except `health` requires a valid signed token when a public key is
-configured; `health` stays open because it is a liveness probe. The layers
-compose: Console agents keep their signed `INVESTIGATOR_MCP_ACTOR_TOKEN`
-environment; the containerized profile keeps `.data` on a private tmpfs, so
-audited attribution follows the same principle of least exposure.
+`switch console setup --actor-tokens`) are intended to distinguish *who is
+being seen*. Every MCP tool except `health` requires a valid signed token when
+a public key is configured; `health` stays open because it is a liveness probe.
+
+That distinction is only a credential, not a same-uid isolation boundary. In
+the local Console profile all six agents run as the operator account, so any
+one of them can read another agent's mode-0600 config and the shared signing
+key under `.data/mcp-auth`, then mint or replay another actor's token and forge
+the audit attribution. The containerized profile isolates the MCP *server* and
+keeps its `/data` on a private tmpfs, but Console still launches the MCP server
+outside that container and the parent agents still share the operator uid.
+Treat actor tokens as credential hygiene until token signing moves behind a
+service with independent approval/identity checks, or each agent gets a
+separate uid/container.
 
 ## Known limits (honest)
 

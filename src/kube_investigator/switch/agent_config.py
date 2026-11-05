@@ -15,6 +15,14 @@ gives each agent its own directory containing an ``opencode.json`` that:
 
 Config files carry tokens, so they are written 0600 inside ``.data`` and are
 never committed.  The private key stays operator-side under ``mcp-auth``.
+
+Same-uid limit: this separation is credential hygiene, not an OS boundary.
+All Console agents currently run as the same operating-system user, so any one
+of them can read another agent's config and the shared signing key.  A
+compromised agent can mint or replay another actor's token and forge the audit
+attribution.  Use a signing service with independent approval/identity checks,
+or a separate uid/container per agent, before treating these names as a
+security boundary.
 """
 
 from __future__ import annotations
@@ -24,7 +32,11 @@ import os
 import stat
 from pathlib import Path
 
-from kube_investigator.mcp_auth import generate_actor_keypair, sign_actor_token
+from kube_investigator.mcp_auth import (
+    PRIVATE_KEY_NAME,
+    generate_actor_keypair,
+    sign_actor_token,
+)
 
 AGENT_CONFIG_DIR = ".data"
 AGENT_CONFIG_SUBDIR = "console-agents"
@@ -131,10 +143,19 @@ def write_agent_directories(
     python_bin: Path,
     token_ttl: int = DEFAULT_TOKEN_TTL_SECONDS,
     tenant: str = "local",
+    rotate_key: bool = False,
 ) -> dict[str, Path]:
-    """One directory (and one identity) per Console agent."""
+    """One directory (and one identity) per Console agent.
+
+    ``rotate_key`` destroys the existing signing keypair before the run, so
+    every token is signed with a new key.  Runtimes started before rotation
+    keep the old public key and remain valid until they restart; the operator
+    must restart them (a Console kickoff does this) to complete revocation.
+    """
     if len(set(agent_names)) != len(agent_names):
         raise ValueError("agent names must be unique")
+    if rotate_key:
+        (auth_dir / PRIVATE_KEY_NAME).unlink(missing_ok=True)
     root = agent_directories_root(data_dir)
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(root, 0o700)

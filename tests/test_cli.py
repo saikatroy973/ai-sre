@@ -47,3 +47,21 @@ def test_show_does_not_initialize_runtime_adapters(tmp_path, capsys, monkeypatch
     monkeypatch.setattr("kube_investigator.cli.build_coordinator", forbidden)
     assert main(["show", first["id"], "--json", "--data-dir", str(tmp_path)]) == 0
     assert json.loads(capsys.readouterr().out) == first
+
+
+def test_audit_command_reads_and_verifies_tool_log(tmp_path, capsys):
+    from kube_investigator.audit import append_audit
+
+    data_dir = tmp_path / "data"
+    assert append_audit(
+        data_dir,
+        "tool-audit",
+        {"tool": "get", "actor": "agent-a", "outcome": "ok", "error": None},
+    )
+
+    assert main(["audit", "--json", "--data-dir", str(data_dir)]) == 0
+    entries = json.loads(capsys.readouterr().out)
+    assert entries[0]["actor"] == "agent-a"
+    assert entries[0]["tool"] == "get"
+    assert main(["audit", "--verify", "--data-dir", str(data_dir)]) == 0
+    assert "Tool audit chain is valid." in capsys.readouterr().out

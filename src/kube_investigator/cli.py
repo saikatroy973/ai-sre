@@ -14,6 +14,7 @@ from uuid import UUID, uuid4
 
 from pydantic import ValidationError
 
+from kube_investigator.audit import read_audit, verify_audit
 from kube_investigator.auth import Principal
 from kube_investigator.config import Settings
 from kube_investigator.coordinator import build_coordinator
@@ -90,6 +91,12 @@ def parser() -> argparse.ArgumentParser:
     queue_run.add_argument("--data-dir", type=Path)
     queue_run.add_argument("--json", action="store_true")
 
+    audit = commands.add_parser("audit", help="Show recent MCP tool audit entries")
+    audit.add_argument("--limit", type=int, default=20)
+    audit.add_argument("--verify", action="store_true")
+    audit.add_argument("--data-dir", type=Path)
+    audit.add_argument("--json", action="store_true")
+
     switch_demo = commands.add_parser(
         "switch-demo",
         help="Run a fixture investigation in a real Switch room",
@@ -147,7 +154,10 @@ def parser() -> argparse.ArgumentParser:
     console_setup.add_argument(
         "--actor-tokens",
         action="store_true",
-        help="Give each agent its own directory and signed MCP actor token",
+        help=(
+            "Give each agent its own directory and signed MCP actor token "
+            "(credential only; not same-uid isolation)"
+        ),
     )
     console_setup.add_argument(
         "--auth-dir",
@@ -160,6 +170,22 @@ def parser() -> argparse.ArgumentParser:
         type=int,
         default=1209600,
         help="Console agent token lifetime in seconds (default 14 days)",
+    )
+    console_setup.add_argument(
+        "--rotate-key",
+        action="store_true",
+        help=(
+            "Rotate the shared signing key before signing (requires --actor-tokens); "
+            "restarted runtimes are required to complete revocation"
+        ),
+    )
+    console_setup.add_argument(
+        "--allow-shared-directory",
+        action="store_true",
+        help=(
+            "Permit downgrading per-agent actor-token wiring to the shared, "
+            "unauthenticated MCP config"
+        ),
     )
     console_setup.add_argument(
         "--refresh", action="store_true", help="Update existing agent instructions"
@@ -313,6 +339,27 @@ def main(argv: list[str] | None = None) -> int:
             return _queue_command(args)
         if args.command == "switch":
             return _switch_command(args)
+        if args.command == "audit":
+            data_dir = args.data_dir or Path(os.getenv("INVESTIGATOR_DATA_DIR", ".data"))
+            if args.verify:
+                ok, errors = verify_audit(data_dir, "tool-audit")
+                if args.json:
+                    print(json.dumps({"ok": ok, "errors": errors}, indent=2, sort_keys=True))
+                else:
+                    print("Tool audit chain is valid." if ok else "Tool audit chain is invalid.")
+                    for error in errors:
+                        print(f"- {error}")
+                return 0 if ok else 1
+            entries = read_audit(data_dir, "tool-audit", args.limit)
+            if args.json:
+                print(json.dumps(entries, indent=2, sort_keys=True))
+            else:
+                for entry in entries:
+                    print(
+                        f"{entry.get('ts')} {entry.get('actor')} {entry.get('tool')} "
+                        f"{entry.get('outcome')} error={entry.get('error')}"
+                    )
+            return 0
         if args.command == "switch-demo":
             settings = switch_demo_settings(args)
             request = InvestigationRequest(
@@ -747,6 +794,8 @@ def _console_setup(client: ConsoleClient, args: argparse.Namespace) -> int:
     directory = args.directory.expanduser().resolve()
     if not directory.is_dir():
         raise ConfigurationError(f"Console agent directory does not exist: {directory}")
+    if args.rotate_key and not args.actor_tokens:
+        raise ConfigurationError("--rotate-key requires --actor-tokens")
     agent_dirs: dict[str, str] = {}
     if args.actor_tokens:
         agent_dirs = _wire_console_actor_tokens(args, directory)
@@ -767,6 +816,24 @@ def _console_setup(client: ConsoleClient, args: argparse.Namespace) -> int:
         raise SwitchError("The selected Switch Console machine is not online")
 
     existing = {str(item.get("name")): item for item in client.agents()}
+    shared_wired = [
+        name
+        for name, item in existing.items()
+        if "/console-agents/" in str((item.get("definition") or {}).get("directory") or "")
+    ]
+    if shared_wired and not args.actor_tokens and not args.allow_shared_directory:
+        raise SwitchError(
+            "Console agents are wired to per-agent actor-token directories; "
+            "pass --actor-tokens (optionally with --rotate-key) to keep that wiring, "
+            "or --allow-shared-directory to downgrade to the shared, unauthenticated "
+            "MCP config on purpose"
+        )
+    if not args.actor_tokens:
+        print(
+            "Warning: agents will use the shared MCP config without per-agent "
+            "credentials; pass --actor-tokens for authenticated, attributed calls.",
+            file=sys.stderr,
+        )
     created: dict[str, str] = {}
     updated: list[str] = []
     for spec in AGENTS:
@@ -829,6 +896,12 @@ def _console_setup(client: ConsoleClient, args: argparse.Namespace) -> int:
         "actor_tokens_enabled": bool(args.actor_tokens),
         "agent_directories": agent_dirs,
         "token_ttl_seconds": args.token_ttl if args.actor_tokens else None,
+        "key_rotated": bool(args.actor_tokens and args.rotate_key),
+        "actor_token_boundary": (
+            "authentication-only; same-uid agents can read each other's tokens and the shared key"
+            if args.actor_tokens
+            else None
+        ),
     }
     if args.json:
         print(json.dumps(payload, indent=2, sort_keys=True))
@@ -841,6 +914,17 @@ def _console_setup(client: ConsoleClient, args: argparse.Namespace) -> int:
     if args.actor_tokens:
         for name, path in sorted(agent_dirs.items()):
             print(f"Actor token directory {name}: {path}")
+        if args.rotate_key:
+            print(
+                "Signing keypair rotated. Running MCP servers still hold the old public key "
+                "and token until their agent runtime restarts; a Console kickoff restarts it."
+            )
+        print(
+            "Credential limit: all agents run as the same OS user and can read each other's "
+            "tokens plus the shared signing key. Actor tokens authenticate calls but do not "
+            "isolate a compromised same-uid agent; use a signing service or a separate uid/"
+            "container per agent before treating actor names as a security boundary."
+        )
     for key, room_id in sorted(payload["rooms"].items()):
         print(f"Room {key}: {room_id or 'not created'}")
     print(f"Working directory: {directory}")
@@ -881,6 +965,8 @@ def _wire_console_actor_tokens(args: argparse.Namespace, directory: Path) -> dic
             auth_dir=auth_dir,
             python_bin=Path(sys.executable),
             token_ttl=args.token_ttl,
+            tenant=(os.getenv("INVESTIGATOR_TENANT") or "local").strip() or "local",
+            rotate_key=args.rotate_key,
         )
     except (OSError, ValueError) as exc:
         print(f"Error: could not write actor token configs: {exc}", file=sys.stderr)
