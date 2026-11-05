@@ -643,8 +643,7 @@ Not yet implemented or not yet verified:
   and crash/restart production gate has not been run.
 - The semantic memory index is optional and disabled by default. Live telemetry/change sources,
   Scale Agentex hosting, and a remediation executor are still absent. Roles are room briefings,
-  not Kubernetes authorization or a security boundary. A human-only room walkthrough and the 10
-  videos remain outstanding.
+  not Kubernetes authorization or a security boundary.
 
 ## Test
 

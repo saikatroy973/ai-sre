@@ -76,7 +76,7 @@ Rooms for collaboration, Console/agent management for runtime, Trust for discove
 guardrails, ROI for model spend, and Trust CLI/MCP/API/CodeScan for developer and CI workflows.
 
 See [SWITCH_NATIVE_PLAN.md](SWITCH_NATIVE_PLAN.md) for the full room topology, agent roster,
-memory layer, Trust gates, identity model, scaling constraints, and 10-video mapping.
+memory layer, Trust gates, identity model, and scaling constraints.
 
 Important corrections:
 
@@ -93,17 +93,8 @@ Important corrections:
 These are implementation requirements, not optional caveats. The demo must show the Switch
 surfaces directly and label composed/external capabilities honestly.
 
-## Series alignment
-
-| Videos | Pillar | Deliverable |
-| --- | --- | --- |
-| 1–3 | Build | Introduction, read-only tools, evidence-backed multi-agent investigations |
-| 4–6 | Deploy/scale | Agentex deployment, durable workflows, recovery and concurrency tests |
-| 7–8 | Govern | Workload identity, authorization, evaluation and approved-action boundaries |
-| 9–10 | Observe | Connected traces, SLOs, costs and evaluated model-routing optimization |
-
-Teaching order does not postpone security: basic scope enforcement and verification start in the
-first slice, and deployments remain staging/read-only until production gates pass.
+Scope enforcement and verification start in the first slice, and deployments remain
+staging/read-only until production gates pass.
 
 ## Documentation
 

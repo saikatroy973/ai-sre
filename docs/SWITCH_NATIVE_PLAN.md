@@ -156,9 +156,9 @@ Not yet verified or not implemented:
   historical Critical findings are not in the current inventory because the model was displaced
   from the 3-model view, not because they were fixed. `claude-haiku-5-5` has no documented Trust
   evaluation yet, and there is no owner/expiry exception workflow.
-- A human-only room walkthrough, semantic memory indexing, live telemetry/change sources, Scale
-  Agentex hosting, and remediation execution are later phases. The local SQLite queue is
-  multi-worker on one host, not a distributed cross-host queue.
+- Live telemetry/change sources, Scale Agentex hosting, and remediation execution are later
+  phases, and the optional semantic memory index stays local and disabled by default. The local
+  SQLite queue is multi-worker on one host, not a distributed cross-host queue.
 - The local Console demo uses OpenCode Auto mode because there is no separate human approval
   channel. Auto mode approves every provider tool request. The MCP evidence tools are read-only,
   but the demo is not an OS sandbox; a shared deployment needs dedicated OS accounts/containers
@@ -741,7 +741,7 @@ Remediation identity:
   used only by the remediation executor after approval
 ```
 
-Switch room access does not grant any of this. Say that in the video.
+Switch room access does not grant any of this.
 
 ---
 
@@ -828,26 +828,7 @@ Switch Trust guardrail events supplement it; they do not replace it.
 
 ---
 
-## 13. 10-video series with Switch
-
-| Video | Pillar | Switch-heavy deliverable |
-| --- | --- | --- |
-| 1 | Build | Intro; Day 1 vs Day 2; Switch stack; demo the selector-mismatch room |
-| 2 | Build | Create the incident room template, instructions, roles, and first investigator |
-| 3 | Build | Add specialists, structured handoffs, evidence verifier, memory researcher |
-| 4 | Deploy | Self-host Switch, Console, agent management, remote hosts, Slack/Mattermost |
-| 5 | Scale | Incident queue, concurrent rooms, one-session-per-room, crash/restart test |
-| 6 | Scale | Switch memory layer: persistent memory, documents, packages, memory room, index |
-| 7 | Govern | Identity: owner inheritance, addressing, OS/RBAC, tool gateway, optional SPIFFE |
-| 8 | Govern | Trust: CodeScan, CLI, evaluations, guardrails, approval-gated remediation |
-| 9 | Observe | Room transcript, Trust Live traffic, OTel, ROI, dashboards, SLOs |
-| 10 | Observe | Model profiles, ROI improvements, cost per incident, production runbook |
-
-Every episode must show a Switch surface and a working artifact. No episode is ‚Äútheory only.‚Äù
-
----
-
-## 14. Implementation backlog
+## 13. Implementation backlog
 
 ### Phase A: Switch foundation
 
@@ -862,7 +843,6 @@ Every episode must show a Switch surface and a working artifact. No episode is ‚
 - [x] Add `switch up --collab` support and verify the Mattermost profile, setup seeder, and
   default bridge on the self-hosted stack.
 - [x] Bridge a Console incident room to Mattermost and verify its external channel URL.
-- [ ] Run a human-only room walkthrough and record it.
 
 ### Phase B: evidence and trust
 
@@ -913,7 +893,6 @@ Every episode must show a Switch surface and a working artifact. No episode is ‚
 - [ ] Add ROI improvements review.
 - [ ] Add model profile experiments.
 - [ ] Add dashboard and runbook.
-- [ ] Record the 10 videos.
 
 ### Phase E: remediation (only after all gates)
 
@@ -926,7 +905,7 @@ Every episode must show a Switch surface and a working artifact. No episode is ‚
 
 ---
 
-## 15. Acceptance gates
+## 14. Acceptance gates
 
 ### Functional
 
@@ -1000,21 +979,21 @@ Every episode must show a Switch surface and a working artifact. No episode is ‚
 | Optional semantic memory index | Pass | `model2vec`; live `routing failure` matched the checkout record; unrelated queries returned none |
 | Distributed queue / Scale hosting | Not implemented | Documented external gaps |
 
-## 16. Open decisions
+## 15. Open decisions
 
 1. **Switch server:** Console local demo or self-hosted Helm for the series?
 2. **Messaging app:** Slack for reach, Mattermost for a self-contained demo, or Teams?
 3. **Trust instance:** hosted `app.switchagents.ai` or a provisioned environment?
 4. **Memory:** documents/packages plus the optional local semantic index; keep it disabled by default?
 5. **Runtime:** Console-managed agents only, or a custom agent-protocol worker pool for scale?
-6. **Remediation:** read-only series, or a gated write episode?
+6. **Remediation:** keep the system read-only, or add a gated write executor?
 7. **Sponsor:** if Scale AI remains a sponsor, which underlying model/eval services are required?
 8. **Private Memory Bank:** if your Switch deployment has one, provide its docs/version so the
    plan can bind to the real API instead of the composed layer.
 
 ---
 
-## 17. Documentation basis
+## 16. Documentation basis
 
 - [Switch framework](https://docs.switchagents.ai/switch-rooms/building/index.md)
 - [Room templates](https://docs.switchagents.ai/switch-rooms/administer/room-templates.md)
