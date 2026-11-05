@@ -679,8 +679,10 @@ Hardening you should wire before showing the agent to anyone else:
 - **Per-agent actor tokens.** `kube-investigator switch console setup --directory . \
   --actor-tokens` gives every Console agent its own directory and an Ed25519-signed
   `INVESTIGATOR_MCP_ACTOR_TOKEN` (14-day TTL by default); every evidence tool except `health`
-  then attributes to the signed identity and fails closed on missing, foreign, or expired
-  tokens (`scripts/mcp_token_probe.py` proves `ok`/`missing`/`foreign` over a real stdio spawn).
+  then authenticates against the signed identity and fails closed on missing, foreign, or
+  expired tokens (`scripts/mcp_token_probe.py` proves `ok`/`missing`/`foreign` over a real
+  stdio spawn). Memory-search audit rows carry the signed actor; `run`/`get`/`verify` currently
+  authenticate without writing an actor-attributed audit record.
 - **Read-only evidence store.** The MCP `get`/`verify` tools open the SQLite evidence store in
   URI read-only mode: they cannot create, migrate, or write it, and a missing store is a clean
   refusal. `INVESTIGATOR_EVIDENCE_STORE_DIR` points them at a staged snapshot in isolation.
