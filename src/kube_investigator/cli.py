@@ -368,6 +368,21 @@ def main(argv: list[str] | None = None) -> int:
             runtime.close()
 
 
+def _queue_lease_seconds() -> int:
+    """Read the worker lease duration; tunable so crash/restart drills are fast.
+
+    The default is five minutes. Values are clamped to 10–3600 seconds so a
+    bad environment value cannot make expired leases undetectable or
+    immediately recyclable.
+    """
+    raw = os.getenv("INVESTIGATOR_QUEUE_LEASE_SECONDS", "300")
+    try:
+        lease = int(raw)
+    except ValueError:
+        return 300
+    return max(10, min(3600, lease))
+
+
 def _settings_from_args(args: argparse.Namespace) -> Settings:
     settings = Settings.from_env()
     if getattr(args, "data_dir", None):
@@ -430,11 +445,15 @@ def _run_queue(args: argparse.Namespace, store: Store) -> int:
     settings = _settings_from_args(args)
     coordinator = build_coordinator(settings)
     results: list[dict[str, object]] = []
-    worker_id = uuid4().hex
+    # Drill harnesses pass INVESTIGATOR_QUEUE_WORKER_LABEL so an operator can
+    # tie a queue row to the worker that claimed it. Unset stays unique-random.
+    labeled = (os.getenv("INVESTIGATOR_QUEUE_WORKER_LABEL") or "").strip()
+    worker_id = labeled[:64] or uuid4().hex
+    lease_seconds = _queue_lease_seconds()
     try:
         store.recover_expired()
         while True:
-            job = store.claim_next(worker_id=worker_id)
+            job = store.claim_next(worker_id=worker_id, lease_seconds=lease_seconds)
             if job is None:
                 break
             try:

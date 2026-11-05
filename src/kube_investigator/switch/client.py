@@ -156,7 +156,9 @@ class SwitchClient:
                 raise SwitchError(f"Switch connection conflict during {operation}")
             if response.status_code == 429:
                 raise SwitchError("Switch rate limit reached")
-            raise SwitchError(f"Switch request failed during {operation}")
+            raise SwitchError(
+                f"Switch request failed during {operation} (status={response.status_code})"
+            )
         try:
             payload = response.json()
         except ValueError as exc:

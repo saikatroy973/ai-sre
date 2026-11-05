@@ -81,6 +81,48 @@ def test_queue_stale_worker_cannot_complete_a_recovered_job(tmp_path):
     assert store.queue_jobs()[0]["status"] == "complete"
 
 
+def test_queue_lease_env_is_clamped_for_crash_drills(monkeypatch):
+    from kube_investigator.cli import _queue_lease_seconds
+
+    monkeypatch.delenv("INVESTIGATOR_QUEUE_LEASE_SECONDS", raising=False)
+    assert _queue_lease_seconds() == 300
+
+    monkeypatch.setenv("INVESTIGATOR_QUEUE_LEASE_SECONDS", "20")
+    assert _queue_lease_seconds() == 20
+
+    # A bad or extreme value cannot make leases undetectable or instantly recyclable.
+    monkeypatch.setenv("INVESTIGATOR_QUEUE_LEASE_SECONDS", "2")
+    assert _queue_lease_seconds() == 10
+    monkeypatch.setenv("INVESTIGATOR_QUEUE_LEASE_SECONDS", "99999")
+    assert _queue_lease_seconds() == 3600
+    monkeypatch.setenv("INVESTIGATOR_QUEUE_LEASE_SECONDS", "not-a-number")
+    assert _queue_lease_seconds() == 300
+
+
+def test_queue_run_passes_the_drill_worker_label_and_lease(monkeypatch, tmp_path):
+    """The harness label and lease override reach `claim_next` verbatim.
+
+    Completed rows intentionally blank their worker_id, so the label is verified
+    where it matters: the atomic claim.
+    """
+    from kube_investigator.storage import Store as RealStore
+
+    captured: dict[str, object] = {}
+
+    def spy(self, *, worker_id, lease_seconds=300):
+        captured["worker_id"] = worker_id
+        captured["lease_seconds"] = lease_seconds
+        return None
+
+    monkeypatch.setattr(RealStore, "claim_next", spy)
+    monkeypatch.setenv("INVESTIGATOR_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("INVESTIGATOR_SWITCH_MODE", "off")
+    monkeypatch.setenv("INVESTIGATOR_QUEUE_WORKER_LABEL", "drill-worker-0")
+    monkeypatch.setenv("INVESTIGATOR_QUEUE_LEASE_SECONDS", "25")
+    assert main(["queue", "run", "--data-dir", str(tmp_path / "data"), "--json"]) == 0
+    assert captured == {"worker_id": "drill-worker-0", "lease_seconds": 25}
+
+
 def test_queue_two_workers_never_claim_the_same_job(tmp_path):
     store = Store(tmp_path / "data")
     job_ids = {store.enqueue(request_data()) for _ in range(12)}
