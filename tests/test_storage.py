@@ -44,3 +44,34 @@ def test_local_database_is_not_world_readable(settings):
     store = Store(settings.data_dir)
     assert store.path.stat().st_mode & 0o077 == 0
     assert settings.data_dir.stat().st_mode & 0o077 == 0
+
+
+def test_readonly_store_reads_without_creating(settings, investigation):
+    store = Store(settings.data_dir)
+    store.create(investigation)
+    reader = Store(settings.data_dir, readonly=True)
+    assert reader.path == store.path
+    assert reader.get(investigation.id) == investigation
+
+
+def test_readonly_store_fails_closed_when_the_store_is_missing(tmp_path):
+    from kube_investigator.errors import ConfigurationError
+
+    missing = tmp_path / "no-such-store"
+    with pytest.raises(ConfigurationError, match="does not exist"):
+        Store(missing, readonly=True)
+    # A reader that refuses must not create a directory or database either.
+    assert not missing.exists()
+
+
+def test_readonly_store_never_writes(settings, investigation):
+    store = Store(settings.data_dir)
+    store.create(investigation)
+    reader = Store(settings.data_dir, readonly=True)
+    with pytest.raises(sqlite3.OperationalError, match="readonly"):
+        reader.create(investigation)
+    with pytest.raises(sqlite3.OperationalError, match="readonly"):
+        with reader.connection() as connection:
+            connection.execute(
+                "INSERT INTO investigations (id, state, record) VALUES ('x', 'y', '{}')"
+            )

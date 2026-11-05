@@ -604,3 +604,40 @@ def test_mcp_rejects_invalid_ids_and_limits(monkeypatch, tmp_path):
         )["ok"]
         is False
     )
+
+
+def test_get_and_verify_read_the_configured_evidence_store_end_to_end(monkeypatch, tmp_path):
+    configure_fixture(monkeypatch, tmp_path)
+    result = run_investigation(
+        question="Why is checkout failing?",
+        cluster="demo-cluster",
+        namespace="shop",
+        service="checkout",
+        deployment="checkout",
+    )
+    monkeypatch.setenv("INVESTIGATOR_EVIDENCE_STORE_DIR", str(tmp_path / "mcp-data"))
+    record = get_investigation(result["investigation_id"])
+    assert record["ok"] is True
+    assert record["state"] == "reported"
+
+    ids = [item["id"] for item in record["evidence"]]
+    passed = verify_candidate(result["investigation_id"], "service_selector_mismatch", ids)
+    assert passed["ok"] is True
+    assert passed["verification"]["passed"] is True
+
+
+def test_missing_evidence_store_fails_closed_without_inventing(tmp_path, monkeypatch):
+    """Read-only stores never create their file, so a bad mount is a clean refusal."""
+    configure_fixture(monkeypatch, tmp_path)
+    monkeypatch.setenv("INVESTIGATOR_EVIDENCE_STORE_DIR", str(tmp_path / "missing-mount"))
+    assert not (tmp_path / "missing-mount").exists()
+    missing = get_investigation("00000000-0000-0000-0000-000000000001")
+    assert missing["ok"] is False
+    assert "does not exist" in missing["error"]
+    missing = verify_candidate(
+        "00000000-0000-0000-0000-000000000001", "service_selector_mismatch", []
+    )
+    assert missing["ok"] is False
+    assert "does not exist" in missing["error"]
+    # The refused store directory was never created either.
+    assert not (tmp_path / "missing-mount").exists()

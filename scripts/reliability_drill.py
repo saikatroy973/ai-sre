@@ -18,18 +18,20 @@ Parts (each part fails closed on any assertion):
     live per-room canary isolation. Read-only.
 
 ``switch-restart``
-    Restarts the self-hosted Switch API container and verifies rooms, room
-    history, and preserved state survive the restart byte-for-byte.
+    Restarts the self-hosted Switch API container and verifies every room
+    history that could be read before the restart survives byte-for-byte.
 
 ``console-agent``
-    SIGKILLs one Switch Console-managed ``opencode serve`` runtime, verifies
-    the Console brings the runtime back, and that Console rooms and agents
-    are unchanged. Optionally triggers one fresh Console incident room
-    (``--console-kickoff``) and reports whether a live session answers.
+    SIGKILLs one Switch Console-managed ``opencode serve`` runtime.  Console
+    does not proactively respawn the runtime; the part waits up to 60s and,
+    with ``--console-kickoff``, then creates one fresh incident room whose
+    kickoff makes the Console re-instantiate the runtime.  Verifies registry
+    agents and rooms are unchanged and a new runtime process exists.
 
 ``console-rooms N``
-    Creates N Console incident rooms concurrently and verifies pack/link
-    isolation for every room.
+    Creates N Console incident rooms concurrently and verifies every room is
+    registered, carries the incident kit package, and links only to the three
+    core rooms.
 
 Usage:
   python scripts/reliability_drill.py protocol [--rooms 10] [--workers 3] [--lease 20]
@@ -493,8 +495,8 @@ def part_switch_restart(data_dir: Path | None) -> dict[str, Any]:
         _fail("no core rooms found before the restart")
     incident_rooms: dict[str, list[dict[str, Any]]] = {}
     try:
-        # Core room survival is judged on the room list; history sample is any room.
-        sample_room = None
+        # Every core room whose history can be read is part of the
+        # byte-for-byte contract, not a single sample.
         for room_id in room_ids.values():
             try:
                 incident_rooms[room_id] = runtime.history("incident-commander", room_id, limit=3)
@@ -503,7 +505,6 @@ def part_switch_restart(data_dir: Path | None) -> dict[str, Any]:
         candidates = [rid for rid, rows in incident_rooms.items() if rows]
         if not candidates:
             _fail("could not read any room history before the restart")
-        sample_room = candidates[0]
 
         container = subprocess.run(
             ["docker", "ps", "--format", "{{.ID}} {{.Ports}}"],
@@ -532,18 +533,17 @@ def part_switch_restart(data_dir: Path | None) -> dict[str, Any]:
                 return False
 
         _wait_for(healthy, 120, "Switch API healthy after restart")
-        after = runtime.history("incident-commander", sample_room, limit=3)
-        if json.dumps(after, sort_keys=True) != json.dumps(
-            incident_rooms[sample_room], sort_keys=True
-        ):
-            _fail("room history changed across the Switch API restart")
+        for room_id, before_rows in incident_rooms.items():
+            after_rows = runtime.history("incident-commander", room_id, limit=3)
+            if json.dumps(after_rows, sort_keys=True) != json.dumps(before_rows, sort_keys=True):
+                _fail(f"history changed across the Switch API restart: {room_id}")
         print(
             f"[{_ts()}] switch-restart part OK: {len(incident_rooms)} histories read, "
-            f"room {sample_room} preserved verbatim",
+            "all preserved verbatim across the restart",
             flush=True,
         )
         return {
-            "sample_room": sample_room,
+            "rooms_compared": len(incident_rooms),
             "rooms_seen": len(incident_rooms),
         }
     finally:
@@ -680,6 +680,9 @@ def part_console_agent(console_kickoff: bool) -> dict[str, Any]:
 
 
 def part_console_rooms(rooms: int) -> dict[str, Any]:
+    from kube_investigator.switch.console import ConsoleClient
+    from kube_investigator.switch.specs import CORE_ROOMS, INCIDENT_KIT_NAME
+
     def create(_index: int) -> str:
         return str(_kickoff_console_incident())
 
@@ -689,12 +692,61 @@ def part_console_rooms(rooms: int) -> dict[str, Any]:
         _fail("Console returned duplicate room ids for concurrent incidents")
     after = _console_status_payload()
     registered = {str(room.get("id") or room.get("room_id")) for room in after["rooms"]}
-    missing = [room_id for room_id in room_ids if room_id not in registered]
-    if missing:
-        _fail(f"Console did not register the incident rooms: {missing[:3]}")
+    missing_rooms = [room_id for room_id in room_ids if room_id not in registered]
+    if missing_rooms:
+        _fail(f"Console did not register the incident rooms: {missing_rooms[:3]}")
+
+    # Pack/link isolation is verified per room through the live Console API.
+    client = ConsoleClient(_console_client())
+    try:
+        core_ids = {
+            str(item.get("name") or item.get("room_name")): str(
+                item.get("id") or item.get("room_id")
+            )
+            for item in client.rooms()
+        }
+        expected_targets = {
+            name: core_ids[name]
+            for name in (CORE_ROOMS["memory"], CORE_ROOMS["change"], CORE_ROOMS["governance"])
+        }
+        unresolved = [name for name, room_id in expected_targets.items() if not room_id]
+        if unresolved:
+            _fail(f"core rooms missing before link verification: {unresolved}")
+        kit_ids = {
+            str(item.get("id"))
+            for item in client.packages()
+            if str(item.get("name")) == INCIDENT_KIT_NAME
+        }
+        if not kit_ids:
+            _fail(f"Console has no {INCIDENT_KIT_NAME} package to verify attachments for")
+        for room_id in room_ids:
+            packages = client.room_packages(room_id)
+            attached_ids = {str(item.get("id")) for item in packages}
+            attached_names = {
+                str(item.get("name") or item.get("package_name") or "") for item in packages
+            }
+            names_sorted = sorted(name for name in attached_names if name) or sorted(attached_ids)
+            if not (attached_ids & kit_ids or INCIDENT_KIT_NAME in attached_names):
+                _fail(
+                    f"incident room {room_id} is missing the {INCIDENT_KIT_NAME} package "
+                    f"(attached: {names_sorted})"
+                )
+            targets = {str(item.get("target_room_id")) for item in client.linked_rooms(room_id)}
+            if not targets.issubset(expected_targets.values()):
+                _fail(
+                    f"incident room {room_id} links outside the core rooms: "
+                    f"{sorted(targets - expected_targets.values())}"
+                )
+            if targets != set(expected_targets.values()):
+                _fail(
+                    f"incident room {room_id} does not link all three core rooms: "
+                    f"missing={sorted(set(expected_targets.values()) - targets)}"
+                )
+    finally:
+        client.close()
     print(
-        f"[{_ts()}] console-rooms part OK: {rooms} concurrent rooms created "
-        f"(registry total {len(registered)})",
+        f"[{_ts()}] console-rooms part OK: {rooms} concurrent rooms created with the "
+        f"{INCIDENT_KIT_NAME} package and core-only links (registry total {len(registered)})",
         flush=True,
     )
     return {"room_ids": room_ids, "registry_total": len(registered)}

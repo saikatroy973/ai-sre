@@ -16,6 +16,7 @@ class Settings:
     backend: str = "fixture"
     scenario: str = "selector-mismatch"
     data_dir: Path = Path(".data")
+    evidence_store_dir_override: Path | None = None
     tenant: str = "local"
     cluster: str = "demo-cluster"
     namespaces: tuple[str, ...] = ("shop",)
@@ -41,7 +42,21 @@ class Settings:
     switch_memory_default_expiry_days: int = 180
     switch_room_history_limit: int = 100
 
+    @property
+    def evidence_store_dir(self) -> Path:
+        """Where persisted investigations live; defaults to the normal data dir.
+
+        ``INVESTIGATOR_EVIDENCE_STORE_DIR`` overrides it for isolated runtimes
+        that mount a staged, read-only snapshot of the evidence store.
+        """
+        return self.evidence_store_dir_override or self.data_dir
+
     def __post_init__(self) -> None:
+        if (
+            self.evidence_store_dir_override is not None
+            and not str(self.evidence_store_dir_override).strip()
+        ):
+            raise ConfigurationError("INVESTIGATOR_EVIDENCE_STORE_DIR must be a nonempty path")
         if self.backend not in {"fixture", "kubernetes"}:
             raise ConfigurationError("INVESTIGATOR_BACKEND must be fixture or kubernetes")
         if self.scenario not in {"selector-mismatch", "healthy", "ambiguous"}:
@@ -115,6 +130,11 @@ class Settings:
             backend=os.getenv("INVESTIGATOR_BACKEND", "fixture"),
             scenario=os.getenv("INVESTIGATOR_SCENARIO", "selector-mismatch"),
             data_dir=Path(os.getenv("INVESTIGATOR_DATA_DIR", ".data")),
+            evidence_store_dir_override=(
+                Path(os.getenv("INVESTIGATOR_EVIDENCE_STORE_DIR"))
+                if (os.getenv("INVESTIGATOR_EVIDENCE_STORE_DIR") or "").strip()
+                else None
+            ),
             tenant=os.getenv("INVESTIGATOR_TENANT", "local"),
             cluster=os.getenv("INVESTIGATOR_CLUSTER", "demo-cluster"),
             namespaces=tuple(

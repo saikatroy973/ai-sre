@@ -157,3 +157,46 @@ def test_keypair_is_reused_across_runs(tmp_path):
 
 def test_default_ttl_is_long_enough_for_a_demo_replaying_later():
     assert DEFAULT_TOKEN_TTL_SECONDS == 14 * 24 * 3600
+
+
+def test_wiring_is_repeatable_and_rotates_tokens(wired):
+    """A setup re-run is the rotation path: it must not fail on existing dirs."""
+    data_dir, auth_dir, _directories = wired
+    first = {
+        name: load_config_environment(agent_directory(data_dir, name) / "opencode.json")[
+            "INVESTIGATOR_MCP_ACTOR_TOKEN"
+        ]
+        for name in AGENT_NAMES
+    }
+    directories = write_agent_directories(
+        agent_names=AGENT_NAMES,
+        data_dir=data_dir,
+        auth_dir=auth_dir,
+        python_bin=Path("/venv/bin/python"),
+        # Ed25519 is deterministic: the same key over the same payload in the
+        # same second gives identical bytes. A changed TTL changes the payload
+        # and is how an operator forces a fresh token without waiting.
+        token_ttl=120,
+    )
+    assert sorted(directories) == sorted(AGENT_NAMES)
+    for name in AGENT_NAMES:
+        config_path = agent_directory(data_dir, name) / "opencode.json"
+        assert config_mode_strict(config_path)
+        rotated = load_config_environment(config_path)["INVESTIGATOR_MCP_ACTOR_TOKEN"]
+        assert rotated != first[name], f"{name} token was not rotated"
+    # The keypair is reused so previously issued, unexpired tokens stay valid.
+    env = load_config_environment(agent_directory(data_dir, AGENT_NAMES[0]) / "opencode.json")
+    settings = Settings(tenant="local", data_dir=data_dir)
+    os.environ["INVESTIGATOR_MCP_PUBLIC_KEY"] = env["INVESTIGATOR_MCP_PUBLIC_KEY"]
+    os.environ["INVESTIGATOR_MCP_ACTOR"] = AGENT_NAMES[0]
+    os.environ["INVESTIGATOR_MCP_ACTOR_TOKEN"] = env["INVESTIGATOR_MCP_ACTOR_TOKEN"]
+    try:
+        actor, error = authorize_actor(settings)
+    finally:
+        for key in (
+            "INVESTIGATOR_MCP_PUBLIC_KEY",
+            "INVESTIGATOR_MCP_ACTOR",
+            "INVESTIGATOR_MCP_ACTOR_TOKEN",
+        ):
+            os.environ.pop(key, None)
+    assert (actor, error) == (AGENT_NAMES[0], None)

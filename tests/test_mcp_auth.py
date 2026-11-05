@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import json
 import time
@@ -8,7 +9,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from kube_investigator.config import Settings
 from kube_investigator.mcp_auth import authorize_actor, verify_actor_token
-from kube_investigator.mcp_server import search_memory
+from kube_investigator.mcp_server import mcp, search_memory
 
 
 def b64(value: bytes) -> str:
@@ -131,3 +132,51 @@ def test_search_memory_rejects_missing_or_foreign_token(monkeypatch, tmp_path):
     )
     assert allowed["ok"] is True
     assert allowed["count"] == 0
+
+
+def test_every_evidence_tool_requires_the_signed_token(monkeypatch, tmp_path):
+    """run/get/verify/source_status are gated exactly like memory search."""
+    from uuid import uuid4
+
+    from kube_investigator.mcp_server import (
+        get_investigation,
+        run_investigation,
+        source_status,
+        verify_candidate,
+    )
+
+    private_key, public_key = keypair()
+    monkeypatch.setenv("INVESTIGATOR_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("INVESTIGATOR_SWITCH_MODE", "off")
+    monkeypatch.setenv("INVESTIGATOR_MCP_PUBLIC_KEY", public_key)
+    monkeypatch.setenv("INVESTIGATOR_MCP_ACTOR", "incident-commander")
+    monkeypatch.delenv("INVESTIGATOR_MCP_ACTOR_TOKEN", raising=False)
+
+    missing = "MCP actor token is required"
+    assert run_investigation(
+        question="Why is checkout failing?",
+        cluster="demo-cluster",
+        namespace="shop",
+        service="checkout",
+        deployment="checkout",
+    ) == {"ok": False, "error": missing}
+    assert get_investigation(str(uuid4())) == {"ok": False, "error": missing}
+    assert get_investigation("not-a-uuid") == {"ok": False, "error": missing}
+    assert verify_candidate(str(uuid4()), "service_selector_mismatch", []) == {
+        "ok": False,
+        "error": missing,
+    }
+    assert source_status("kubernetes") == {"ok": False, "error": missing}
+
+    monkeypatch.setenv(
+        "INVESTIGATOR_MCP_ACTOR_TOKEN",
+        token(private_key, actor="incident-commander", tenant="local"),
+    )
+    status = source_status("kubernetes")
+    assert status["ok"] is True
+    assert status["configured"] is False
+
+    # Without a token at all, health stays open: it is a liveness probe.
+    monkeypatch.delenv("INVESTIGATOR_MCP_ACTOR_TOKEN", raising=False)
+    health = asyncio.run(mcp.call_tool("kube_investigator_health", {}))
+    assert "ok" in json.dumps(health, default=str)

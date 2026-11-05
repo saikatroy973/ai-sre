@@ -186,6 +186,7 @@ class FakeConsoleClient:
         self.settings = configuration
         self.agent_calls = []
         self.room_calls = []
+        self.update_calls = []
         self.closed = False
         self._agents = []
         self._rooms = []
@@ -262,6 +263,7 @@ class FakeConsoleClient:
         return agent
 
     def update_agent(self, agent_id, **kwargs):
+        self.update_calls.append({"agent_id": agent_id, **kwargs})
         return {"agent_id": agent_id, **kwargs}
 
     def create_rooms_from_yaml(self, template):
@@ -374,3 +376,74 @@ def test_console_incident_creates_a_top_level_kickoff(tmp_path, monkeypatch, cap
     assert "\nkickoff: |\n" in template
     assert "@incident-commander Start the read-only investigation." in template
     assert "Fixture scenario: selector-mismatch" in template
+
+
+def test_console_setup_actor_tokens_wires_and_updates_existing_agents(
+    tmp_path, monkeypatch, capsys
+):
+    _configure(monkeypatch, tmp_path)
+    # First run creates the six agents with the shared working directory.
+    assert main(["switch", "console", "setup"]) == 0
+    capsys.readouterr()  # discard the non-JSON run
+    shared = FakeConsoleClient.instances[-1]
+    assert shared.agent_calls and not shared.update_calls
+
+    # Reuse the same Console so the rerun sees existing agents.
+    monkeypatch.setattr(
+        "kube_investigator.cli.ConsoleClient",
+        lambda configuration: shared,
+    )
+    # Actor tokens fail closed before Console is touched at all.
+    assert main(["switch", "console", "setup", "--actor-tokens", "--token-ttl", "10"]) == 1
+    assert "at least 60" in capsys.readouterr().err
+    assert not shared.update_calls
+
+    assert main(["switch", "console", "setup", "--actor-tokens", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["actor_tokens_enabled"] is True
+    assert payload["token_ttl_seconds"] == 1209600
+    assert sorted(payload["agent_directories"]) == [
+        "change-analyst",
+        "cluster-investigator",
+        "evidence-verifier",
+        "incident-commander",
+        "memory-researcher",
+        "telemetry-analyst",
+    ]
+    for name, path in payload["agent_directories"].items():
+        agent_dir = tmp_path / ".data" / "console-agents" / name
+        assert path == str(agent_dir), name
+        assert (agent_dir / "opencode.json").is_file()
+    assert [item["agent_id"] for item in shared.update_calls] == [
+        f"{name}-id"
+        for name in (
+            "incident-commander",
+            "cluster-investigator",
+            "telemetry-analyst",
+            "change-analyst",
+            "memory-researcher",
+            "evidence-verifier",
+        )
+    ]
+    for item in shared.update_calls:
+        # Every existing agent moves to its own per-agent directory.
+        assert item["directory"].startswith(str(tmp_path / ".data" / "console-agents"))
+        assert item["provider"] == "opencode"
+        assert item["auto_mode"] is True
+        assert "instructions" in item
+
+
+def test_console_setup_without_actor_tokens_never_rewrites_agents(tmp_path, monkeypatch, capsys):
+    _configure(monkeypatch, tmp_path)
+    assert main(["switch", "console", "setup"]) == 0
+    capsys.readouterr()  # discard the non-JSON run
+    shared = FakeConsoleClient.instances[-1]
+    monkeypatch.setattr(
+        "kube_investigator.cli.ConsoleClient",
+        lambda configuration: shared,
+    )
+    assert main(["switch", "console", "setup", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["actor_tokens_enabled"] is False
+    assert payload["agent_directories"] == {}
+    assert shared.update_calls == []

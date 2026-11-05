@@ -193,8 +193,8 @@ kube-investigator switch memory audit --verify
 
 Set `INVESTIGATOR_MCP_ACTOR` to label the caller. For a stronger credential check, set
 `INVESTIGATOR_MCP_PUBLIC_KEY` and pass a signed Ed25519 token in
-`INVESTIGATOR_MCP_ACTOR_TOKEN`; the server then rejects missing, expired, wrong-tenant, and
-wrong-actor tokens:
+`INVESTIGATOR_MCP_ACTOR_TOKEN`; **every tool call except `health`** (run/get/verify/memory/
+source-status) then rejects missing, expired, wrong-tenant, and wrong-actor tokens:
 
 ```sh
 python scripts/mcp_actor_token.py keygen --out-dir .data/mcp-auth
@@ -678,10 +678,14 @@ Hardening you should wire before showing the agent to anyone else:
 
 - **Per-agent actor tokens.** `kube-investigator switch console setup --directory . \
   --actor-tokens` gives every Console agent its own directory and an Ed25519-signed
-  `INVESTIGATOR_MCP_ACTOR_TOKEN` (14-day TTL by default); memory reads then attribute to the
-  signed identity and fail closed on missing, foreign, or expired tokens
-  (`scripts/mcp_token_probe.py` proves `ok`/`missing`/`foreign` over a real stdio spawn).
+  `INVESTIGATOR_MCP_ACTOR_TOKEN` (14-day TTL by default); every evidence tool except `health`
+  then attributes to the signed identity and fails closed on missing, foreign, or expired
+  tokens (`scripts/mcp_token_probe.py` proves `ok`/`missing`/`foreign` over a real stdio spawn).
+- **Read-only evidence store.** The MCP `get`/`verify` tools open the SQLite evidence store in
+  URI read-only mode: they cannot create, migrate, or write it, and a missing store is a clean
+  refusal. `INVESTIGATOR_EVIDENCE_STORE_DIR` points them at a staged snapshot in isolation.
 - **OS isolation.** `bash deploy/mcp-container/verify.sh` builds a non-root, read-only,
-  capability-less, network-less MCP container and gates four probes (`uid-isolation`,
-  `filesystem-isolation`, `network-isolation`, `mcp-stdio-handshake`); details and limits:
-  `docs/OS_ISOLATION.md`.
+  capability-less, network-less MCP container, stages a real completed investigation as a
+  0444 read-only snapshot, and gates five probes (`uid-isolation`, `filesystem-isolation`,
+  `network-isolation`, `mcp-stdio-handshake`, `evidence-store`); details and limits:
+  `docs/OS_ISOLATION.md`. The same gate runs as the `isolation` CI job on every push.

@@ -6,9 +6,10 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
+from urllib.parse import quote
 from uuid import UUID, uuid4
 
-from kube_investigator.errors import NotFoundError
+from kube_investigator.errors import ConfigurationError, NotFoundError
 from kube_investigator.models import (
     AgentMessage,
     Evidence,
@@ -38,11 +39,26 @@ class QueueJob:
 
 
 class Store:
-    """Local milestone storage; deliberately not a distributed workflow queue."""
+    """Local milestone storage; deliberately not a distributed workflow queue.
 
-    def __init__(self, data_dir: Path):
-        data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    With ``readonly=True`` the store opens the SQLite file in URI read-only
+    mode and never creates, migrates, or upgrades anything: it fails closed
+    when the file is missing and any write attempt becomes a SQLite
+    "attempt to write a readonly database" error.  Used by the MCP tools that
+    read persisted evidence, so an isolated runtime can mount a snapshot.
+    """
+
+    def __init__(self, data_dir: Path, *, readonly: bool = False):
+        self.readonly = readonly
         self.path = data_dir / "investigator.sqlite3"
+        if readonly:
+            if not self.path.is_file():
+                raise ConfigurationError(
+                    f"evidence store {self.path} does not exist; "
+                    "a read-only store never creates one"
+                )
+            return
+        data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         # Create with restrictive permissions before SQLite opens it.
         self.path.touch(mode=0o600, exist_ok=True)
         with self.connection() as connection:
@@ -100,7 +116,12 @@ class Store:
 
     @contextmanager
     def connection(self) -> Iterator[sqlite3.Connection]:
-        connection = sqlite3.connect(self.path, timeout=5)
+        if self.readonly:
+            connection = sqlite3.connect(
+                f"file:{quote(str(self.path.absolute()))}?mode=ro", uri=True, timeout=5
+            )
+        else:
+            connection = sqlite3.connect(self.path, timeout=5)
         connection.execute("PRAGMA foreign_keys=ON")
         try:
             with connection:

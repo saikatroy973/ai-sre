@@ -49,6 +49,17 @@ def _error(exc: Exception) -> dict[str, Any]:
     return {"ok": False, "error": message}
 
 
+def _authorize(settings: Settings) -> str | None:
+    """Return the auth error for ``settings``; ``None`` when the actor is valid.
+
+    Every tool except ``health`` is gated.  Without a configured public key
+    the server runs in local development mode and admits the env-labeled
+    actor, so ordinary local use keeps working.
+    """
+    _, auth_error = authorize_actor(settings)
+    return auth_error
+
+
 def _evidence_summary(evidence: list[Any]) -> list[dict[str, Any]]:
     return [
         {
@@ -94,6 +105,9 @@ def run_investigation(
     room and no cluster change.
     """
     settings = _settings()
+    auth_error = _authorize(settings)
+    if auth_error is not None:
+        return {"ok": False, "error": auth_error}
     if scenario is not None and settings.backend == "fixture":
         settings = replace(settings, scenario=scenario)
     coordinator = None
@@ -117,14 +131,21 @@ def run_investigation(
 
 
 def get_investigation(investigation_id: str) -> dict[str, Any]:
-    """Read back a persisted investigation and its evidence metadata."""
+    """Read back a persisted investigation and its evidence metadata.
+
+    The evidence store is opened strictly read-only: this tool can never
+    create, upgrade, or write an investigation record — even accidentally.
+    """
     settings = _settings()
+    auth_error = _authorize(settings)
+    if auth_error is not None:
+        return {"ok": False, "error": auth_error}
     try:
         started = UUID(investigation_id)
     except ValueError:
         return {"ok": False, "error": "investigation_id must be a UUID"}
-    store = Store(settings.data_dir)
     try:
+        store = Store(settings.evidence_store_dir, readonly=True)
         investigation = store.get(started)
     except InvestigatorError as exc:
         return _error(exc)
@@ -144,6 +165,9 @@ def verify_candidate(
     freshness, scope, and the selector proof against the stored snapshots.
     """
     settings = _settings()
+    auth_error = _authorize(settings)
+    if auth_error is not None:
+        return {"ok": False, "error": auth_error}
     try:
         started = UUID(investigation_id)
         candidate = Candidate(
@@ -152,8 +176,8 @@ def verify_candidate(
         )
     except (ValueError, TypeError):
         return {"ok": False, "error": "invalid investigation or evidence id"}
-    store = Store(settings.data_dir)
     try:
+        store = Store(settings.evidence_store_dir, readonly=True)
         investigation = store.get(started)
     except InvestigatorError as exc:
         return _error(exc)
@@ -281,6 +305,9 @@ def search_memory(
 def source_status(source: Literal["telemetry", "change", "kubernetes"]) -> dict[str, Any]:
     """Report whether a live source is configured, without inventing evidence."""
     settings = _settings()
+    auth_error = _authorize(settings)
+    if auth_error is not None:
+        return {"ok": False, "error": auth_error}
     if source == "kubernetes":
         return {
             "ok": True,

@@ -136,7 +136,7 @@ def write_agent_directories(
     if len(set(agent_names)) != len(agent_names):
         raise ValueError("agent names must be unique")
     root = agent_directories_root(data_dir)
-    root.mkdir(parents=True, mode=0o700)
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(root, 0o700)
     return {
         name: write_agent_config(

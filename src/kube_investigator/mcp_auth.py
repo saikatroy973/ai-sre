@@ -1,10 +1,11 @@
 """Signed actor tokens for the local MCP server.
 
 The MCP server is a stdio child of the agent process.  When
-``INVESTIGATOR_MCP_PUBLIC_KEY`` is configured, every memory read must carry an
-Ed25519-signed token that names the actor and tenant.  The private key stays
-with the operator; the MCP server only needs the public key.  This is a
-credential check, not a replacement for OS/process isolation.
+``INVESTIGATOR_MCP_PUBLIC_KEY`` is configured, every tool call except
+``health`` must carry an Ed25519-signed token that names the actor and
+tenant.  The private key stays with the operator; the MCP server only needs
+the public key.  This is a credential check, not a replacement for
+OS/process isolation.
 """
 
 from __future__ import annotations

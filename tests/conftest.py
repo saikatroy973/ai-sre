@@ -17,6 +17,7 @@ def offline_environment(monkeypatch):
         "INVESTIGATOR_BACKEND",
         "INVESTIGATOR_SCENARIO",
         "INVESTIGATOR_DATA_DIR",
+        "INVESTIGATOR_EVIDENCE_STORE_DIR",
         "INVESTIGATOR_TENANT",
         "INVESTIGATOR_CLUSTER",
         "INVESTIGATOR_NAMESPACES",
