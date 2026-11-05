@@ -87,8 +87,9 @@ PASS mcp-stdio-handshake    # initialize -> tools/list -> memory call answers
 PASS evidence-store         # get -> real staged report; verify -> re-passes; write to /evidence rejected
 ```
 
-Recorded evidence (2026-11-05, Docker Desktop 29.6.2, image
-`sha256:7693b2f9d…`):
+Recorded evidence (2026-11-05, CI isolation job, image
+`sha256:79c0a5a5…`; an earlier local Docker Desktop run passed the same
+five probes):
 
 ```
 PASS uid-isolation
