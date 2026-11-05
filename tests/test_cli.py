@@ -65,3 +65,8 @@ def test_audit_command_reads_and_verifies_tool_log(tmp_path, capsys):
     assert entries[0]["tool"] == "get"
     assert main(["audit", "--verify", "--data-dir", str(data_dir)]) == 0
     assert "Tool audit chain is valid." in capsys.readouterr().out
+
+
+def test_audit_verify_reports_an_empty_log(tmp_path, capsys):
+    assert main(["audit", "--verify", "--data-dir", str(tmp_path / "empty")]) == 0
+    assert "No tool audit entries found" in capsys.readouterr().out

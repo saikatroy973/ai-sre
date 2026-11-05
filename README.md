@@ -201,10 +201,13 @@ kube-investigator switch memory audit --verify
 The other MCP tools write the same kind of hash-chained, actor-attributed entry to
 `tool-audit*.jsonl` in the writable data directory. `run` records the scope, question hash/length,
 investigation ID, and trace ID; `get`/`verify` record the investigation and evidence metadata; and
-`source_status` records the source and whether it is configured. The evidence SQLite store stays
-read-only, so serving a staged snapshot still produces an audit row. A failed audit write fails the
-tool closed, and the actor is the verified token subject rather than a fixed operator label. Inspect
-or verify the chain with:
+`source_status` records the source and whether it is configured. Each row also records `auth_mode`
+(`token` or `dev`) so a development-mode label is distinguishable from a verified token subject.
+The evidence SQLite store stays read-only, so serving a staged snapshot still produces an audit
+row. A failed audit write fails the tool closed, and the actor is the verified token subject rather
+than a fixed operator label. The hash chain detects edits and mid-chain breaks, but without an
+external anchor it cannot detect tail truncation or whole-file deletion, and a same-uid writer can
+rewrite it: treat it as tamper-evident, not tamper-proof. Inspect or verify the chain with:
 
 ```sh
 kube-investigator audit --limit 20

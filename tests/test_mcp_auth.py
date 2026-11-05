@@ -225,6 +225,7 @@ def test_every_authenticated_tool_writes_actor_attributed_audit(monkeypatch, tmp
     assert [entry["tool"] for entry in entries] == ["run", "get", "verify", "source_status"]
     assert {entry["actor"] for entry in entries} == {"incident-commander"}
     assert {entry["outcome"] for entry in entries} == {"ok"}
+    assert {entry["auth_mode"] for entry in entries} == {"token"}
     assert entries[0]["investigation_id"] == run["investigation_id"]
     assert entries[0]["trace_id"] == run["trace_id"]
     assert entries[0]["cluster"] == "demo-cluster"
@@ -341,3 +342,4 @@ def test_tool_audit_bounds_caller_supplied_metadata(monkeypatch, tmp_path):
     entries = read_audit(data_dir, "tool-audit", limit=5)
     assert len(entries) == 1
     assert len(entries[0]["investigation_id"]) <= 201
+    assert entries[0]["auth_mode"] == "dev"

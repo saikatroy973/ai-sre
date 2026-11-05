@@ -343,8 +343,17 @@ def main(argv: list[str] | None = None) -> int:
             data_dir = args.data_dir or Path(os.getenv("INVESTIGATOR_DATA_DIR", ".data"))
             if args.verify:
                 ok, errors = verify_audit(data_dir, "tool-audit")
+                present = bool(read_audit(data_dir, "tool-audit", 1))
                 if args.json:
-                    print(json.dumps({"ok": ok, "errors": errors}, indent=2, sort_keys=True))
+                    print(
+                        json.dumps(
+                            {"ok": ok, "errors": errors, "entries_present": present},
+                            indent=2,
+                            sort_keys=True,
+                        )
+                    )
+                elif not present:
+                    print("No tool audit entries found; nothing to verify.")
                 else:
                     print("Tool audit chain is valid." if ok else "Tool audit chain is invalid.")
                     for error in errors:
@@ -353,11 +362,14 @@ def main(argv: list[str] | None = None) -> int:
             entries = read_audit(data_dir, "tool-audit", args.limit)
             if args.json:
                 print(json.dumps(entries, indent=2, sort_keys=True))
+            elif not entries:
+                print("No tool audit entries found.")
             else:
                 for entry in entries:
                     print(
                         f"{entry.get('ts')} {entry.get('actor')} {entry.get('tool')} "
-                        f"{entry.get('outcome')} error={entry.get('error')}"
+                        f"{entry.get('outcome')} auth={entry.get('auth_mode')} "
+                        f"error={entry.get('error')}"
                     )
             return 0
         if args.command == "switch-demo":

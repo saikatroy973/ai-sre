@@ -4,7 +4,12 @@ The evidence database is deliberately opened read-only by the MCP get/verify
 tools.  Audit records therefore live beside it in the writable data directory:
 reading a staged evidence snapshot still produces a durable, actor-attributed
 record.  Each entry carries a SHA-256 chain over the previous entry so a
-modified or truncated file is detectable.
+modified existing entry or a break in the middle of the chain is detectable.
+
+Honest limit: a hash chain without an external anchor cannot detect truncation
+of the newest entries or deletion of the whole file, and any process that can
+write the data directory can rewrite the chain.  The chain is tamper-evident
+against accidental edits, not tamper-proof against a same-uid attacker.
 """
 
 from __future__ import annotations

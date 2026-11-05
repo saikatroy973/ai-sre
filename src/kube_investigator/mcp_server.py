@@ -13,6 +13,7 @@ logged.
 from __future__ import annotations
 
 import hashlib
+import os
 import sqlite3
 from dataclasses import replace
 from typing import Any, Literal
@@ -76,14 +77,17 @@ def _audit(
 
     The row lives in the writable data directory, never in the evidence store:
     ``get``/``verify`` keep their SQLite handle read-only even while they
-    record who asked.
+    record who asked.  ``auth_mode`` makes development-mode labels
+    distinguishable from verified token subjects.
     """
+    auth_mode = "token" if (os.getenv("INVESTIGATOR_MCP_PUBLIC_KEY") or "").strip() else "dev"
     return append_audit(
         settings.data_dir,
         "tool-audit",
         {
             "tool": tool,
             "actor": actor or "unauthenticated",
+            "auth_mode": auth_mode,
             "outcome": outcome,
             "error": error,
             **{key: _bounded(value) for key, value in fields.items()},
