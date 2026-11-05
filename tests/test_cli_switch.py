@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from kube_investigator.cli import main
+from kube_investigator.mcp_server import search_memory
 from kube_investigator.switch.runtime import FakeSwitchRuntime
 
 
@@ -124,6 +125,201 @@ def test_memory_cli_approves_lists_and_searches_a_supported_report(tmp_path, mon
     assert [lead["record_id"] for lead in leads] == [record_id]
     assert leads[0]["trust"] == "historical_lead_not_evidence"
     assert "Switch" not in json.dumps(leads)
+
+
+def test_memory_cli_publishes_an_approved_record_to_console(tmp_path, monkeypatch, capsys):
+    data = tmp_path / "data"
+    assert main(["demo", "--json", "--data-dir", str(data)]) == 0
+    first = json.loads(capsys.readouterr().out)
+    monkeypatch.setenv("INVESTIGATOR_SWITCH_MODE", "off")
+    assert (
+        main(
+            [
+                "switch",
+                "memory",
+                "approve",
+                "--investigation",
+                first["id"],
+                "--reviewer",
+                "alice",
+                "--title",
+                "Checkout selector mismatch",
+                "--summary",
+                "The checkout Service selector excluded the ready Deployment.",
+                "--data-dir",
+                str(data),
+                "--json",
+            ]
+        )
+        == 0
+    )
+    record_id = json.loads(capsys.readouterr().out)["record"]["id"]
+
+    class Settings:
+        server_url = "http://console.test"
+
+    class FakeConsole:
+        def __init__(self, configuration):
+            self.attached = None
+
+        def rooms(self):
+            return [
+                {"id": "memory-room", "name": "k8s-memory"},
+                {"id": "other-room", "name": "k8s-incidents"},
+            ]
+
+        def create_document(self, **kwargs):
+            assert kwargs["name"] == f"memory-{record_id}"
+            assert "Checkout selector mismatch" in kwargs["content"]
+            return {"id": "console-memory-doc"}
+
+        def attach_document_to_room(self, room_id, document_id):
+            self.attached = (room_id, document_id)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(
+        "kube_investigator.cli.ConsoleSettings.from_env",
+        lambda required=True: Settings(),
+    )
+    monkeypatch.setattr("kube_investigator.cli.ConsoleClient", FakeConsole)
+    assert (
+        main(
+            [
+                "switch",
+                "memory",
+                "publish",
+                "--id",
+                record_id,
+                "--console",
+                "--data-dir",
+                str(data),
+                "--json",
+            ]
+        )
+        == 0
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["record_id"] == record_id
+    assert payload["switch_room_id"] == "memory-room"
+    assert payload["switch_document_id"] == "console-memory-doc"
+    assert payload["switch_console_url"] == "http://console.test"
+
+
+def test_memory_cli_approves_and_publishes_to_console(tmp_path, monkeypatch, capsys):
+    data = tmp_path / "data"
+    assert main(["demo", "--json", "--data-dir", str(data)]) == 0
+    first = json.loads(capsys.readouterr().out)
+    monkeypatch.setenv("INVESTIGATOR_SWITCH_MODE", "off")
+
+    class Settings:
+        server_url = "http://console.test"
+
+    class FakeConsole:
+        def __init__(self, configuration):
+            self.attached = None
+
+        def rooms(self):
+            return [{"id": "memory-room", "name": "k8s-memory"}]
+
+        def create_document(self, **kwargs):
+            return {"id": "console-memory-doc"}
+
+        def attach_document_to_room(self, room_id, document_id):
+            self.attached = (room_id, document_id)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(
+        "kube_investigator.cli.ConsoleSettings.from_env",
+        lambda required=True: Settings(),
+    )
+    monkeypatch.setattr("kube_investigator.cli.ConsoleClient", FakeConsole)
+    assert (
+        main(
+            [
+                "switch",
+                "memory",
+                "approve",
+                "--investigation",
+                first["id"],
+                "--reviewer",
+                "alice",
+                "--title",
+                "Checkout selector mismatch",
+                "--summary",
+                "The checkout Service selector excluded the ready Deployment.",
+                "--console",
+                "--data-dir",
+                str(data),
+                "--json",
+            ]
+        )
+        == 0
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["switch_room_id"] == "memory-room"
+    assert payload["switch_document_id"] == "console-memory-doc"
+
+
+def test_memory_audit_lists_mcp_search_entries(tmp_path, monkeypatch, capsys):
+    data = tmp_path / "data"
+    assert main(["demo", "--json", "--data-dir", str(data)]) == 0
+    first = json.loads(capsys.readouterr().out)
+    monkeypatch.setenv("INVESTIGATOR_SWITCH_MODE", "off")
+    assert (
+        main(
+            [
+                "switch",
+                "memory",
+                "approve",
+                "--investigation",
+                first["id"],
+                "--reviewer",
+                "alice",
+                "--title",
+                "Checkout selector mismatch",
+                "--summary",
+                "The checkout Service selector excluded the ready Deployment.",
+                "--data-dir",
+                str(data),
+                "--json",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    monkeypatch.setenv("INVESTIGATOR_DATA_DIR", str(data))
+    monkeypatch.setenv("INVESTIGATOR_MCP_ACTOR", "memory-researcher")
+    result = search_memory(
+        cluster="demo-cluster",
+        namespace="shop",
+        query="checkout selector",
+    )
+    assert result["count"] == 1
+
+    assert (
+        main(
+            [
+                "switch",
+                "memory",
+                "audit",
+                "--data-dir",
+                str(data),
+                "--json",
+            ]
+        )
+        == 0
+    )
+    entries = json.loads(capsys.readouterr().out)
+    assert len(entries) == 1
+    assert entries[0]["actor"] == "memory-researcher"
+    assert entries[0]["outcome"] == "ok"
+    assert entries[0]["count"] == 1
+    assert entries[0]["query_sha256"]
+    assert "checkout selector" not in json.dumps(entries)
 
 
 def test_memory_approval_is_not_indexed_when_required_switch_is_unavailable(

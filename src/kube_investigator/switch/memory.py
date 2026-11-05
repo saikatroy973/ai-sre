@@ -258,6 +258,7 @@ class MemoryStore:
         scope: Scope,
         query: str,
         limit: int = 5,
+        offset: int = 0,
         now: datetime | None = None,
     ) -> list[HistoricalLead]:
         if len(query) > 4000:
@@ -273,7 +274,8 @@ class MemoryStore:
         selected = [record for score, _, record in ranked if terms and score > 0]
         if not terms:
             selected = [record for _, _, record in ranked]
-        return [record.lead() for record in selected[: max(1, min(limit, 50))]]
+        start = max(0, offset)
+        return [record.lead() for record in selected[start : start + max(1, min(limit, 50))]]
 
     def render_leads(self, leads: list[HistoricalLead]) -> str:
         """Render leads as untrusted historical data, never as instructions."""

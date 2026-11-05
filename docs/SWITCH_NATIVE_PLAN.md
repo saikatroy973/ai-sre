@@ -87,7 +87,7 @@ Implemented and verified live through **Switch Console**, the mandatory live age
   live Console runtime.
 
 Offline validation: `ruff check .`, `ruff format --check .`, and the full pytest suite pass
-(238 tests). The Switch protocol and Console API tests use an in-memory fake and
+(242 tests). The Switch protocol and Console API tests use an in-memory fake and
 `httpx.MockTransport`; the repository's test configuration forbids real sockets.
 
 Verified live for the optional self-hosted collaboration profile:
@@ -179,6 +179,7 @@ Not yet verified or not implemented:
 | 9. Live Kubernetes / Scale | Partial | Live `kind-imesh` read abstained as designed; Scale Agentex/SGP has no credentials and is not deployed |
 | 10. Reliability | Partial | Leases, recovery, stale-worker guard, 2-worker and 30-job/4-worker tests; 10-room crash/restart drill not run |
 | 11. Security / autonomy | Partial | Read-only MCP tool allowlist test and live guardrails; no OS isolation, remediation, or reviewed approval path |
+| Memory tool contract | Pass | Tenant isolation, cursor pagination, metadata audit, Console memory-room publication, direct stdio MCP test |
 
 
 ---
@@ -534,8 +535,16 @@ stdio MCP client, not only by calling the Python function:
   validation details.
 - `limit` is bounded to 1–20. Cross-namespace searches return no records. Every result carries
   `historical_leads_are_not_evidence` and `used_as_evidence: false`.
+- Results include `has_more` and `next_cursor`; passing the cursor pages through the same scoped
+  result set without duplicates.
+- Every read, including rejected reads, appends a metadata-only audit entry with the actor,
+  effective tenant, scope, query hash, cursor, outcome, error, and result record IDs. Set
+  `INVESTIGATOR_MCP_ACTOR` to label the caller; the raw query is never stored.
+- Approved records can be published directly to the Console `k8s-memory` room with
+  `switch memory approve --console` or backfilled with `switch memory publish --id <id> --console`.
+  The live record `e984ecff-…` is attached as Console document `ec18bbac-…`.
 
-The direct protocol test is in `tests/test_mcp_server.py`; the full suite is 238 tests.
+The direct protocol test is in `tests/test_mcp_server.py`; the full suite is 242 tests.
 
 ---
 

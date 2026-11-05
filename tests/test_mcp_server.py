@@ -16,6 +16,7 @@ from kube_investigator.mcp_server import (
     source_status,
     verify_candidate,
 )
+from kube_investigator.models import Scope
 from kube_investigator.storage import Store
 from kube_investigator.switch.memory import MemoryStore
 
@@ -109,6 +110,21 @@ def test_mcp_memory_tenant_defaults_and_isolates(monkeypatch, tmp_path):
         title="Checkout selector mismatch",
         summary="The checkout Service selector excluded the ready Deployment pods.",
     )
+    foreign = investigation.model_copy(
+        update={"scope": Scope(tenant="other", cluster="demo-cluster", namespace="shop")}
+    )
+    MemoryStore(store).approve(
+        foreign,
+        foreign.report,
+        reviewer="alice",
+        title="Foreign tenant checkout record",
+        summary="This record must never be visible outside the other tenant.",
+    )
+    foreign_leads = MemoryStore(store).search(
+        scope=Scope(tenant="other", cluster="demo-cluster", namespace="shop"),
+        query="foreign tenant",
+    )
+    assert len(foreign_leads) == 1
 
     defaulted = search_memory(
         cluster="demo-cluster",
@@ -201,6 +217,100 @@ def test_mcp_memory_tenant_defaults_and_isolates(monkeypatch, tmp_path):
     assert bad_scope["error"] == "invalid memory search scope"
 
 
+def test_mcp_memory_pagination_and_audit(monkeypatch, tmp_path):
+    configure_fixture(monkeypatch, tmp_path)
+    settings = Settings.from_env()
+    store = Store(settings.data_dir)
+    for index in range(3):
+        result = run_investigation(
+            question="Why is checkout failing?",
+            cluster="demo-cluster",
+            namespace="shop",
+            service="checkout",
+            deployment="checkout",
+        )
+        investigation = store.get(UUID(result["investigation_id"]))
+        MemoryStore(store).approve(
+            investigation,
+            investigation.report,
+            reviewer="alice",
+            title=f"Checkout selector mismatch {index}",
+            summary="The checkout Service selector excluded the ready Deployment pods.",
+        )
+
+    first = search_memory(
+        cluster="demo-cluster",
+        namespace="shop",
+        query="checkout selector",
+        limit=1,
+    )
+    assert first["count"] == 1
+    assert first["has_more"] is True
+    assert first["next_cursor"] == "1"
+
+    second = search_memory(
+        cluster="demo-cluster",
+        namespace="shop",
+        query="checkout selector",
+        limit=1,
+        cursor=first["next_cursor"],
+    )
+    assert second["count"] == 1
+    assert second["has_more"] is True
+    assert second["next_cursor"] == "2"
+
+    third = search_memory(
+        cluster="demo-cluster",
+        namespace="shop",
+        query="checkout selector",
+        limit=1,
+        cursor=second["next_cursor"],
+    )
+    assert third["count"] == 1
+    assert third["has_more"] is False
+    assert third["next_cursor"] is None
+
+    record_ids = {
+        first["leads"][0]["record_id"],
+        second["leads"][0]["record_id"],
+        third["leads"][0]["record_id"],
+    }
+    assert len(record_ids) == 3
+
+    bad_cursor = search_memory(
+        cluster="demo-cluster",
+        namespace="shop",
+        query="checkout selector",
+        cursor="not-a-number",
+    )
+    assert bad_cursor["ok"] is False
+    assert "cursor" in bad_cursor["error"]
+
+    rejected = search_memory(
+        tenant="other",
+        cluster="demo-cluster",
+        namespace="shop",
+        query="checkout selector",
+    )
+    assert rejected["ok"] is False
+
+    audit_path = settings.data_dir / "memory-audit.jsonl"
+    entries = [json.loads(line) for line in audit_path.read_text().splitlines() if line]
+    assert len(entries) == 5
+    assert [entry["outcome"] for entry in entries] == [
+        "ok",
+        "ok",
+        "ok",
+        "rejected",
+        "rejected",
+    ]
+    assert entries[0]["count"] == 1
+    assert entries[0]["actor"] == "mcp"
+    assert entries[0]["query_sha256"]
+    assert entries[3]["error"] == "cursor must be a non-negative integer"
+    assert entries[4]["error"] == "tenant is outside the configured server scope"
+
+
 def test_mcp_source_status_abstains_without_inventing_evidence(monkeypatch, tmp_path):
     configure_fixture(monkeypatch, tmp_path)
     telemetry = source_status("telemetry")
@@ -270,6 +380,8 @@ def test_mcp_protocol_memory_schema_and_tenant_contract(monkeypatch, tmp_path):
                 schema = memory.inputSchema
                 assert schema["properties"]["tenant"]["default"] is None
                 assert "tenant" not in schema["required"]
+                assert schema["properties"]["cursor"]["default"] is None
+                assert "cursor" not in schema["required"]
 
                 async def call(args: dict) -> dict:
                     response = await session.call_tool("kube_investigator_memory", args)
@@ -293,8 +405,18 @@ def test_mcp_protocol_memory_schema_and_tenant_contract(monkeypatch, tmp_path):
                 assert (await call({**base, "namespace": "Bad_NS"}))["error"] == (
                     "invalid memory search scope"
                 )
+                cursor_page = await call({**base, "limit": 1, "cursor": "1"})
+                assert cursor_page["ok"] is True
+                assert cursor_page["count"] == 0
+                assert cursor_page["has_more"] is False
 
     asyncio.run(check())
+    audit_path = settings.data_dir / "memory-audit.jsonl"
+    entries = [json.loads(line) for line in audit_path.read_text().splitlines() if line]
+    assert entries
+    assert entries[-1]["actor"] == "mcp"
+    assert entries[-1]["outcome"] == "ok"
+    assert entries[-1]["cursor"] == "1"
 
 
 def test_mcp_rejects_invalid_ids_and_limits(monkeypatch, tmp_path):

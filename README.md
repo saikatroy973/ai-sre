@@ -176,8 +176,28 @@ rendered context includes them.
 The MCP `kube_investigator_memory` tool takes an optional nullable tenant. Omitted or `null` uses
 the configured server tenant; an explicit tenant is trimmed and must match that server tenant, so
 the tool cannot search another tenant. Empty/blank tenants and queries, overlong queries, invalid
-scope values, and limits outside 1–20 fail closed with sanitized errors. A direct stdio MCP client
-test covers the schema and these cases.
+scope values, and limits outside 1–20 fail closed with sanitized errors. Results include
+`has_more` and `next_cursor`; pass the cursor back to page through the scoped records. A direct
+stdio MCP client test covers the schema, pagination, rejection cases, and audit output.
+
+Memory reads are audited to `memory-audit.jsonl` with the actor, effective tenant, scope, query
+hash (not the raw query), cursor, outcome, error, and result record IDs. Set
+`INVESTIGATOR_MCP_ACTOR` to label the caller. The audit is metadata-only and is separate from the
+memory index, so rejected reads are visible too:
+
+```sh
+kube-investigator switch memory audit --limit 20
+```
+
+Approved records can be published directly to the Console `k8s-memory` room:
+
+```sh
+kube-investigator switch memory approve ... --console
+kube-investigator switch memory publish --id <record-id> --console
+```
+
+The live record `e984ecff-…` is attached to the Console memory room as document
+`ec18bbac-ebe4-46b3-98d4-f41618ac81da` (`3f13df47-4d6b-4707-99e8-c90a28ca9842`).
 
 ### Switch Trust and ROI
 
@@ -606,6 +626,6 @@ ruff format --check .
 Tests use fixtures, an in-memory Switch runtime, and mock HTTP transports; they do not access a
 cluster, Scale, or a live Switch server. The GitHub Actions `Tests` workflow
 [run 41884542336](https://github.com/saikatroy973/kube-investigator/actions/runs/41884542336)
-passed on Python 3.11, 3.13, and 3.14 for commit `ecf8722`; the local suite is 238 tests. See
+passed on Python 3.11, 3.13, and 3.14 for commit `ecf8722`; the local suite is 242 tests. See
 `docs/BUILD_PLAN.md` for the implementation sequence and `docs/SWITCH_NATIVE_PLAN.md` for the gap
 audit (2–11) and remaining production gates.
