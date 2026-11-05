@@ -185,6 +185,17 @@ def search_memory(
     if limit < 1 or limit > 20:
         return {"ok": False, "error": "limit must be between 1 and 20"}
     settings = _settings()
+    if tenant is not None:
+        tenant = tenant.strip()
+        if not tenant:
+            return {"ok": False, "error": "tenant must not be empty"}
+        if tenant != settings.tenant:
+            return {"ok": False, "error": "tenant is outside the configured server scope"}
+    query = query.strip()
+    if not query:
+        return {"ok": False, "error": "query must not be empty"}
+    if len(query) > 4000:
+        return {"ok": False, "error": "query must be at most 4000 characters"}
     store = Store(settings.data_dir)
     memory = MemoryStore(store)
     try:
@@ -199,6 +210,8 @@ def search_memory(
         )
     except InvestigatorError as exc:
         return _error(exc)
+    except ValueError:
+        return {"ok": False, "error": "invalid memory search scope"}
     return {
         "ok": True,
         "count": len(leads),

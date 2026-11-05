@@ -173,6 +173,12 @@ evidence IDs, eleven message IDs, and the content hash. The live memory run also
 MCP lead payload omitted evidence/message IDs; `HistoricalLead` now returns all of them and the
 rendered context includes them.
 
+The MCP `kube_investigator_memory` tool takes an optional nullable tenant. Omitted or `null` uses
+the configured server tenant; an explicit tenant is trimmed and must match that server tenant, so
+the tool cannot search another tenant. Empty/blank tenants and queries, overlong queries, invalid
+scope values, and limits outside 1–20 fail closed with sanitized errors. A direct stdio MCP client
+test covers the schema and these cases.
+
 ### Switch Trust and ROI
 
 The read-only governance client is separate from the room server. It reads the API key's
@@ -600,6 +606,6 @@ ruff format --check .
 Tests use fixtures, an in-memory Switch runtime, and mock HTTP transports; they do not access a
 cluster, Scale, or a live Switch server. The GitHub Actions `Tests` workflow
 [run 41884542336](https://github.com/saikatroy973/kube-investigator/actions/runs/41884542336)
-passed on Python 3.11, 3.13, and 3.14 for commit `ecf8722`; the local suite is 236 tests. See
+passed on Python 3.11, 3.13, and 3.14 for commit `ecf8722`; the local suite is 238 tests. See
 `docs/BUILD_PLAN.md` for the implementation sequence and `docs/SWITCH_NATIVE_PLAN.md` for the gap
 audit (2–11) and remaining production gates.

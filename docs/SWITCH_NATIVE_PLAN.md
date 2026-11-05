@@ -87,7 +87,7 @@ Implemented and verified live through **Switch Console**, the mandatory live age
   live Console runtime.
 
 Offline validation: `ruff check .`, `ruff format --check .`, and the full pytest suite pass
-(236 tests). The Switch protocol and Console API tests use an in-memory fake and
+(238 tests). The Switch protocol and Console API tests use an in-memory fake and
 `httpx.MockTransport`; the repository's test configuration forbids real sockets.
 
 Verified live for the optional self-hosted collaboration profile:
@@ -518,6 +518,25 @@ Switch protocol investigation `26b9521d-6cef-43a4-a737-7852124c14f7` in room
 `f448ca1f-c7bf-4c17-9958-4524c9be3d02`. It carries the source room, trace, five evidence IDs,
 eleven message IDs, and the content hash; the old record is no longer returned by default.
 
+### MCP memory tool contract (validated 2026-11-05)
+
+`kube_investigator_memory` exposes `tenant` as an optional nullable string with default `null`.
+`cluster`, `namespace`, and `query` remain required. The tool was validated through a direct
+stdio MCP client, not only by calling the Python function:
+
+- Omitted tenant and `null` use the configured server tenant.
+- An explicit tenant is trimmed; empty/blank values fail with `tenant must not be empty`.
+- A tenant that differs from the configured server tenant fails with
+  `tenant is outside the configured server scope`; it never searches another tenant.
+- Empty and whitespace-only queries fail; queries over 4000 characters fail instead of being
+  silently truncated.
+- Invalid cluster/namespace values return `invalid memory search scope` without leaking Pydantic
+  validation details.
+- `limit` is bounded to 1â€“20. Cross-namespace searches return no records. Every result carries
+  `historical_leads_are_not_evidence` and `used_as_evidence: false`.
+
+The direct protocol test is in `tests/test_mcp_server.py`; the full suite is 238 tests.
+
 ---
 
 ## 8. Switch Trust plan
@@ -922,7 +941,8 @@ Every episode must show a Switch surface and a working artifact. No episode is â
 
 ### Security
 
-- Cross-namespace and cross-tenant access denied.
+- Cross-namespace and cross-tenant access denied. Memory tool: a foreign tenant is rejected and a
+  cross-namespace search returns no records.
 - No write/exec/secret tools in investigation identities.
 - Prompt injection in logs/documents does not change tool authorization.
 - A malicious peer message cannot widen scope.
