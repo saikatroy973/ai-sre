@@ -12,9 +12,6 @@ logged.
 
 from __future__ import annotations
 
-import hashlib
-import json
-import os
 from dataclasses import replace
 from typing import Any, Literal
 from uuid import UUID
@@ -26,7 +23,8 @@ from kube_investigator.auth import Principal
 from kube_investigator.config import Settings
 from kube_investigator.coordinator import build_coordinator
 from kube_investigator.errors import InvestigatorError
-from kube_investigator.models import Candidate, InvestigationRequest, Scope, utc_now
+from kube_investigator.mcp_auth import authorize_actor
+from kube_investigator.models import Candidate, InvestigationRequest, Scope
 from kube_investigator.storage import Store
 from kube_investigator.switch.memory import MemoryStore
 from kube_investigator.telemetry import configure_tracing
@@ -172,58 +170,6 @@ def verify_candidate(
     }
 
 
-def _audit_memory_search(
-    settings: Settings,
-    *,
-    actor: str,
-    requested_tenant: str | None,
-    effective_tenant: str,
-    cluster: str,
-    namespace: str,
-    query: str,
-    limit: int,
-    cursor: str | None,
-    offset: int,
-    outcome: str,
-    leads: list[Any],
-    error: str | None = None,
-) -> bool:
-    """Append a metadata-only memory read audit record.
-
-    Queries are hashed, never stored verbatim.  The audit file is separate from
-    the memory index so rejected reads are visible too.
-    """
-    entry = {
-        "ts": utc_now().isoformat(),
-        "actor": actor,
-        "requested_tenant": requested_tenant,
-        "effective_tenant": effective_tenant,
-        "cluster": cluster,
-        "namespace": namespace,
-        "query_sha256": hashlib.sha256(query.encode()).hexdigest(),
-        "query_length": len(query),
-        "limit": limit,
-        "cursor": cursor,
-        "offset": offset,
-        "outcome": outcome,
-        "count": len(leads),
-        "record_ids": [str(lead.record_id) for lead in leads],
-        "error": error,
-    }
-    try:
-        settings.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-        descriptor = os.open(
-            settings.data_dir / "memory-audit.jsonl",
-            os.O_APPEND | os.O_CREAT | os.O_WRONLY,
-            0o600,
-        )
-        with os.fdopen(descriptor, "a", encoding="utf-8") as handle:
-            handle.write(json.dumps(entry, sort_keys=True) + "\n")
-    except OSError:
-        return False
-    return True
-
-
 def search_memory(
     *,
     tenant: str | None = None,
@@ -237,16 +183,36 @@ def search_memory(
 
     Results are leads, not evidence.  They are never passed to the reasoner.
     Omit tenant to use the configured server tenant.  Use ``next_cursor`` from
-    a prior response to page through results.
+    a prior response to page through a stable result snapshot.
     """
     settings = _settings()
-    actor = (os.getenv("INVESTIGATOR_MCP_ACTOR") or "mcp")[:120]
+    store = Store(settings.data_dir)
+    memory = MemoryStore(store)
+    actor, auth_error = authorize_actor(settings)
     offset = 0
     leads: list[Any] = []
 
+    if auth_error is not None:
+        memory.audit_search(
+            actor="unauthenticated",
+            requested_tenant=tenant,
+            effective_tenant=tenant or settings.tenant,
+            cluster=cluster,
+            namespace=namespace,
+            query=query,
+            limit=limit,
+            cursor=cursor,
+            offset=0,
+            outcome="rejected",
+            leads=[],
+            error=auth_error,
+        )
+        return {"ok": False, "error": auth_error}
+
+    assert actor is not None
+
     def audit(outcome: str, error: str | None = None) -> bool:
-        return _audit_memory_search(
-            settings,
+        return memory.audit_search(
             actor=actor,
             requested_tenant=tenant,
             effective_tenant=tenant or settings.tenant,
@@ -268,9 +234,10 @@ def search_memory(
     if limit < 1 or limit > 20:
         return fail("limit must be between 1 and 20")
     if cursor is not None:
-        if not cursor.isdigit():
+        _, separator, offset_text = cursor.partition(":")
+        if not separator or not offset_text.isdigit():
             return fail("cursor must be a non-negative integer")
-        offset = int(cursor)
+        offset = int(offset_text)
     if tenant is not None:
         tenant = tenant.strip()
         if not tenant:
@@ -282,26 +249,21 @@ def search_memory(
         return fail("query must not be empty")
     if len(query) > 4000:
         return fail("query must be at most 4000 characters")
-    store = Store(settings.data_dir)
-    memory = MemoryStore(store)
     try:
-        page = memory.search(
+        leads, next_cursor = memory.search_page(
             scope=Scope(
                 tenant=tenant or settings.tenant,
                 cluster=cluster,
                 namespace=namespace,
             ),
             query=query,
-            limit=limit + 1,
-            offset=offset,
+            limit=limit,
+            cursor=cursor,
         )
     except InvestigatorError as exc:
         return fail(str(exc))
     except ValueError:
         return fail("invalid memory search scope")
-    has_more = len(page) > limit
-    leads = page[:limit]
-    next_cursor = str(offset + limit) if has_more else None
     if not audit("ok"):
         return {"ok": False, "error": "memory audit failed"}
     return {
@@ -311,7 +273,7 @@ def search_memory(
         "rendered": memory.render_leads(leads),
         "policy": "historical_leads_are_not_evidence",
         "used_as_evidence": False,
-        "has_more": has_more,
+        "has_more": next_cursor is not None,
         "next_cursor": next_cursor,
     }
 

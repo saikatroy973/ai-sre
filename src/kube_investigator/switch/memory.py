@@ -14,11 +14,19 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import secrets
 from collections.abc import Callable
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any, Literal
 from uuid import UUID
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - non-Unix fallback
+    fcntl = None
 
 from kube_investigator.errors import ConfigurationError, NotFoundError
 from kube_investigator.models import (
@@ -108,8 +116,10 @@ class MemoryStore:
     every approval is also published to the ``k8s-memory`` Switch room.
     """
 
-    def __init__(self, store: Store):
+    def __init__(self, store: Store, *, embedder: Any | None = None):
         self.store = store
+        self._embedder = embedder
+        self._semantic_model = (os.getenv("INVESTIGATOR_MEMORY_SEMANTIC_MODEL") or "").strip()
         with store.connection() as connection:
             connection.executescript(
                 """
@@ -125,6 +135,22 @@ class MemoryStore:
                 );
                 CREATE INDEX IF NOT EXISTS memory_scope
                     ON memory_records(tenant, cluster, namespace, status);
+                CREATE TABLE IF NOT EXISTS memory_search_snapshots (
+                    token TEXT PRIMARY KEY,
+                    query_hash TEXT NOT NULL,
+                    scope TEXT NOT NULL,
+                    record_ids TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS memory_snapshot_created
+                    ON memory_search_snapshots(created_at);
+                CREATE TABLE IF NOT EXISTS memory_embeddings (
+                    record_id TEXT NOT NULL,
+                    model TEXT NOT NULL,
+                    content_sha256 TEXT NOT NULL,
+                    vector TEXT NOT NULL,
+                    PRIMARY KEY(record_id, model)
+                );
                 """
             )
 
@@ -252,15 +278,136 @@ class MemoryStore:
             records.append(record)
         return records
 
-    def search(
+    def _load_embedder(self) -> Any | None:
+        if self._embedder is not None:
+            return self._embedder
+        if not self._semantic_model:
+            return None
+        try:
+            from model2vec import StaticModel
+        except ImportError as exc:
+            raise ConfigurationError(
+                "Semantic memory requires the 'semantic' extra (model2vec)"
+            ) from exc
+        self._embedder = StaticModel.from_pretrained(self._semantic_model)
+        return self._embedder
+
+    @property
+    def _embedding_model_key(self) -> str:
+        return self._semantic_model or "injected"
+
+    @property
+    def embedding_model(self) -> str:
+        return self._embedding_model_key
+
+    @staticmethod
+    def _record_text(record: MemoryRecord) -> str:
+        return f"{record.title}\n{record.summary}\n{record.diagnosis}"
+
+    def _embed(self, texts: list[str]) -> list[list[float]] | None:
+        embedder = self._load_embedder()
+        if embedder is None:
+            return None
+        vectors = embedder.encode(texts)
+        if hasattr(vectors, "tolist"):
+            vectors = vectors.tolist()
+        return [[float(value) for value in vector] for vector in vectors]
+
+    def _load_or_compute_embeddings(self, records: list[MemoryRecord]) -> list[list[float]] | None:
+        model = self._embedding_model_key
+        with self.store.connection() as connection:
+            rows = connection.execute(
+                "SELECT record_id, content_sha256, vector FROM memory_embeddings WHERE model = ?",
+                (model,),
+            ).fetchall()
+        cached = {row[0]: (row[1], json.loads(row[2])) for row in rows if isinstance(row[0], str)}
+        missing = [
+            record
+            for record in records
+            if str(record.id) not in cached or cached[str(record.id)][0] != record.content_sha256
+        ]
+        if missing:
+            vectors = self._embed([self._record_text(record) for record in missing])
+            if vectors is None:
+                return None
+            with self.store.connection() as connection:
+                for record, vector in zip(missing, vectors, strict=True):
+                    connection.execute(
+                        "INSERT OR REPLACE INTO memory_embeddings "
+                        "(record_id, model, content_sha256, vector) VALUES (?, ?, ?, ?)",
+                        (
+                            str(record.id),
+                            model,
+                            record.content_sha256,
+                            json.dumps(vector),
+                        ),
+                    )
+            for record, vector in zip(missing, vectors, strict=True):
+                cached[str(record.id)] = (record.content_sha256, vector)
+        return [cached[str(record.id)][1] for record in records]
+
+    def rebuild_embeddings(self, *, scope: Scope | None = None) -> int:
+        """Drop and rebuild the semantic index for the configured model."""
+        if self._load_embedder() is None:
+            raise ConfigurationError("Semantic memory is not configured")
+        records = self.list(scope=scope, now=utc_now())
+        with self.store.connection() as connection:
+            connection.execute(
+                "DELETE FROM memory_embeddings WHERE model = ?",
+                (self._embedding_model_key,),
+            )
+        if records:
+            self._load_or_compute_embeddings(records)
+        return len(records)
+
+    def _semantic_ranked(
         self,
         *,
         scope: Scope,
         query: str,
-        limit: int = 5,
-        offset: int = 0,
         now: datetime | None = None,
-    ) -> list[HistoricalLead]:
+    ) -> list[tuple[float, datetime, MemoryRecord]] | None:
+        if self._load_embedder() is None:
+            return None
+        records = self.list(scope=scope, now=now)
+        if not records:
+            return []
+        vectors = self._load_or_compute_embeddings(records)
+        if vectors is None:
+            return None
+        query_vector = self._embed([query])
+        if not query_vector:
+            return None
+        terms = {word for word in _WORD.findall(query.lower()) if word not in _STOPWORDS}
+        try:
+            threshold = float(os.getenv("INVESTIGATOR_MEMORY_SEMANTIC_THRESHOLD", "0.15"))
+        except ValueError:
+            threshold = 0.15
+        ranked = []
+        for record, vector in zip(records, vectors, strict=True):
+            dot = sum(left * right for left, right in zip(query_vector[0], vector, strict=False))
+            query_norm = sum(value * value for value in query_vector[0]) ** 0.5
+            record_norm = sum(value * value for value in vector) ** 0.5
+            cosine = dot / (query_norm * record_norm) if query_norm and record_norm else 0.0
+            haystack = f"{record.title} {record.summary} {record.diagnosis}".lower()
+            keyword_hits = sum(1 for term in terms if term in haystack)
+            if keyword_hits == 0 and cosine < threshold:
+                continue
+            keyword_score = keyword_hits / len(terms) if terms else 0.0
+            ranked.append((0.4 * keyword_score + 0.6 * cosine, record.approved_at, record))
+        ranked.sort(key=lambda item: (item[0], item[1]), reverse=True)
+        return ranked
+
+    def _ranked(
+        self,
+        *,
+        scope: Scope,
+        query: str,
+        now: datetime | None = None,
+    ) -> list[tuple[float, datetime, MemoryRecord]]:
+        semantic = self._semantic_ranked(scope=scope, query=query, now=now)
+        if semantic is not None:
+            return semantic
         if len(query) > 4000:
             query = query[:4000]
         terms = {word for word in _WORD.findall(query.lower()) if word not in _STOPWORDS}
@@ -271,11 +418,255 @@ class MemoryStore:
             score = sum(1 for term in terms if term in haystack)
             ranked.append((score, record.approved_at, record))
         ranked.sort(key=lambda item: (item[0], item[1]), reverse=True)
-        selected = [record for score, _, record in ranked if terms and score > 0]
+        selected = [item for item in ranked if terms and item[0] > 0]
         if not terms:
-            selected = [record for _, _, record in ranked]
+            selected = ranked
+        return selected
+
+    def search(
+        self,
+        *,
+        scope: Scope,
+        query: str,
+        limit: int = 5,
+        offset: int = 0,
+        now: datetime | None = None,
+    ) -> list[HistoricalLead]:
+        ranked = self._ranked(scope=scope, query=query, now=now)
         start = max(0, offset)
-        return [record.lead() for record in selected[start : start + max(1, min(limit, 50))]]
+        return [record.lead() for _, _, record in ranked[start : start + max(1, min(limit, 50))]]
+
+    def search_page(
+        self,
+        *,
+        scope: Scope,
+        query: str,
+        limit: int = 5,
+        cursor: str | None = None,
+        now: datetime | None = None,
+    ) -> tuple[list[HistoricalLead], str | None]:
+        """Page through a stable snapshot of the ranked search result.
+
+        The first call stores the ordered record IDs in a short-lived snapshot
+        and returns an opaque cursor. New approvals do not shift later pages.
+        """
+        current = now or utc_now()
+        cutoff = (current - timedelta(minutes=10)).isoformat()
+        with self.store.connection() as connection:
+            connection.execute(
+                "DELETE FROM memory_search_snapshots WHERE created_at < ?",
+                (cutoff,),
+            )
+        query_hash = hashlib.sha256(query.encode()).hexdigest()
+        scope_json = json.dumps(scope.model_dump(mode="json"), sort_keys=True)
+        if cursor is None:
+            ranked = self._ranked(scope=scope, query=query, now=current)
+            record_ids = [str(record.id) for _, _, record in ranked]
+            if not record_ids:
+                return [], None
+            token = secrets.token_urlsafe(24)
+            with self.store.connection() as connection:
+                connection.execute(
+                    "INSERT INTO memory_search_snapshots "
+                    "(token, query_hash, scope, record_ids, created_at) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (
+                        token,
+                        query_hash,
+                        scope_json,
+                        json.dumps(record_ids),
+                        current.isoformat(),
+                    ),
+                )
+            offset = 0
+        else:
+            token, separator, offset_text = cursor.partition(":")
+            if not separator or not token or not offset_text.isdigit():
+                raise ConfigurationError("memory cursor is invalid or expired")
+            offset = int(offset_text)
+            with self.store.connection() as connection:
+                row = connection.execute(
+                    "SELECT query_hash, scope, record_ids FROM memory_search_snapshots "
+                    "WHERE token = ?",
+                    (token,),
+                ).fetchone()
+            if row is None:
+                raise ConfigurationError("memory cursor is invalid or expired")
+            if row[0] != query_hash or row[1] != scope_json:
+                raise ConfigurationError("memory cursor does not match this search")
+            record_ids = json.loads(row[2])
+        page_ids = record_ids[offset : offset + max(1, min(limit, 50))]
+        leads = []
+        for record_id in page_ids:
+            try:
+                record = self.get(UUID(record_id))
+            except (NotFoundError, ValueError):
+                continue
+            if record.status != "approved" or record.expires_at <= current:
+                continue
+            leads.append(record.lead())
+        next_cursor = (
+            f"{token}:{offset + len(page_ids)}"
+            if offset + len(page_ids) < len(record_ids)
+            else None
+        )
+        return leads, next_cursor
+
+    def _audit_files(self) -> list[Path]:
+        data_dir = self.store.path.parent
+        archived = sorted(data_dir.glob("memory-audit.*.jsonl"))
+        current = data_dir / "memory-audit.jsonl"
+        if current.exists():
+            archived.append(current)
+        return archived
+
+    @staticmethod
+    def _last_audit_hash(files: list[Path]) -> str:
+        for path in reversed(files):
+            try:
+                lines = path.read_text(encoding="utf-8").splitlines()
+            except OSError:
+                continue
+            for line in reversed(lines):
+                if not line.strip():
+                    continue
+                try:
+                    entry = json.loads(line)
+                except ValueError:
+                    continue
+                value = entry.get("entry_sha256")
+                if isinstance(value, str):
+                    return value
+        return ""
+
+    def audit_search(
+        self,
+        *,
+        actor: str,
+        requested_tenant: str | None,
+        effective_tenant: str,
+        cluster: str,
+        namespace: str,
+        query: str,
+        limit: int,
+        cursor: str | None,
+        offset: int,
+        outcome: str,
+        leads: list[Any],
+        error: str | None = None,
+    ) -> bool:
+        """Append a metadata-only, hash-chained memory read audit record."""
+        data_dir = self.store.path.parent
+        try:
+            data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+            max_bytes = int(os.getenv("INVESTIGATOR_MCP_AUDIT_MAX_BYTES", "5000000"))
+        except (OSError, ValueError):
+            return False
+        try:
+            lock_descriptor = os.open(
+                data_dir / "memory-audit.lock",
+                os.O_APPEND | os.O_CREAT | os.O_RDWR,
+                0o600,
+            )
+            with os.fdopen(lock_descriptor, "a+", encoding="utf-8") as lock:
+                if fcntl is not None:
+                    fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+                files = self._audit_files()
+                previous = self._last_audit_hash(files)
+                current = data_dir / "memory-audit.jsonl"
+                if max_bytes > 0 and current.exists() and current.stat().st_size >= max_bytes:
+                    archive = data_dir / (
+                        "memory-audit."
+                        + utc_now().strftime("%Y%m%dT%H%M%S%fZ")
+                        + "."
+                        + secrets.token_hex(4)
+                        + ".jsonl"
+                    )
+                    current.rename(archive)
+                body = {
+                    "ts": utc_now().isoformat(),
+                    "actor": actor,
+                    "requested_tenant": requested_tenant,
+                    "effective_tenant": effective_tenant,
+                    "cluster": cluster,
+                    "namespace": namespace,
+                    "query_sha256": hashlib.sha256(query.encode()).hexdigest(),
+                    "query_length": len(query),
+                    "limit": limit,
+                    "cursor": cursor,
+                    "offset": offset,
+                    "outcome": outcome,
+                    "count": len(leads),
+                    "record_ids": [str(lead.record_id) for lead in leads],
+                    "error": error,
+                    "prev_sha256": previous,
+                }
+                serialized = json.dumps(body, sort_keys=True, separators=(",", ":"))
+                entry = {
+                    **body,
+                    "entry_sha256": hashlib.sha256(serialized.encode()).hexdigest(),
+                }
+                descriptor = os.open(
+                    current,
+                    os.O_APPEND | os.O_CREAT | os.O_WRONLY,
+                    0o600,
+                )
+                with os.fdopen(descriptor, "a", encoding="utf-8") as handle:
+                    handle.write(json.dumps(entry, sort_keys=True, separators=(",", ":")) + "\n")
+                if fcntl is not None:
+                    fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+        except OSError:
+            return False
+        return True
+
+    def read_audit(self, limit: int = 20) -> list[dict[str, Any]]:
+        entries: list[dict[str, Any]] = []
+        for path in self._audit_files():
+            try:
+                lines = path.read_text(encoding="utf-8").splitlines()
+            except OSError:
+                continue
+            for line in lines:
+                if not line.strip():
+                    continue
+                try:
+                    entry = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(entry, dict):
+                    entries.append(entry)
+        return entries[-max(1, limit) :]
+
+    def verify_audit(self) -> tuple[bool, list[str]]:
+        errors: list[str] = []
+        previous = ""
+        for path in self._audit_files():
+            try:
+                lines = path.read_text(encoding="utf-8").splitlines()
+            except OSError as exc:
+                errors.append(f"{path.name}: {type(exc).__name__}")
+                continue
+            for line_number, line in enumerate(lines, start=1):
+                if not line.strip():
+                    continue
+                try:
+                    entry = json.loads(line)
+                except ValueError:
+                    errors.append(f"{path.name}:{line_number}: invalid JSON")
+                    continue
+                if not isinstance(entry, dict):
+                    errors.append(f"{path.name}:{line_number}: invalid entry")
+                    continue
+                stored = entry.pop("entry_sha256", None)
+                if entry.get("prev_sha256") != previous:
+                    errors.append(f"{path.name}:{line_number}: chain break")
+                serialized = json.dumps(entry, sort_keys=True, separators=(",", ":"))
+                expected = hashlib.sha256(serialized.encode()).hexdigest()
+                if stored != expected:
+                    errors.append(f"{path.name}:{line_number}: hash mismatch")
+                if isinstance(stored, str):
+                    previous = stored
+        return not errors, errors
 
     def render_leads(self, leads: list[HistoricalLead]) -> str:
         """Render leads as untrusted historical data, never as instructions."""

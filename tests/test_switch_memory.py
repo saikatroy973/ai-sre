@@ -243,6 +243,52 @@ def test_memory_titles_and_reviewers_are_bounded_and_clean(settings, principal, 
         )
 
 
+class FakeEmbedder:
+    def encode(self, texts):
+        vectors = []
+        for text in texts:
+            lower = text.lower()
+            if any(word in lower for word in ("email", "notification")):
+                vectors.append([0.0, 1.0, 0.0])
+            elif any(
+                word in lower for word in ("checkout", "selector", "service", "routing", "pods")
+            ):
+                vectors.append([1.0, 0.0, 0.0])
+            else:
+                vectors.append([0.0, 0.0, 1.0])
+        return vectors
+
+
+def test_semantic_search_finds_a_conceptual_match(settings, principal, request_data):
+    first, store = completed(settings, principal, request_data)
+    memory = MemoryStore(store, embedder=FakeEmbedder())
+    checkout = memory.approve(
+        first,
+        first.report,
+        reviewer="alice",
+        title="Checkout selector mismatch",
+        summary="The Service selector excluded the ready pods.",
+    )
+    second, _ = completed(settings, principal, request_data)
+    email = memory.approve(
+        second,
+        second.report,
+        reviewer="alice",
+        title="Email notification failure",
+        summary="Email delivery failed for the notification worker.",
+    )
+
+    assert memory.rebuild_embeddings(scope=checkout.scope) == 2
+    leads = memory.search(scope=checkout.scope, query="routing")
+    assert [lead.record_id for lead in leads] == [checkout.id]
+    assert email.id not in {lead.record_id for lead in leads}
+    assert memory.embedding_model == "injected"
+
+    with store.connection() as connection:
+        count = connection.execute("SELECT COUNT(*) FROM memory_embeddings").fetchone()[0]
+    assert count == 2
+
+
 def test_memory_payload_is_json_serializable_and_secret_free(settings, principal, request_data):
     record, _ = approved(settings, principal, request_data)
     payload = memory_record_payload(record)

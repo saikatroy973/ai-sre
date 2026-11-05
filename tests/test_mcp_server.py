@@ -246,18 +246,38 @@ def test_mcp_memory_pagination_and_audit(monkeypatch, tmp_path):
     )
     assert first["count"] == 1
     assert first["has_more"] is True
-    assert first["next_cursor"] == "1"
+    first_cursor = first["next_cursor"]
+    assert first_cursor is not None
+    token, _, offset = first_cursor.partition(":")
+    assert token
+    assert offset == "1"
+
+    late_result = run_investigation(
+        question="Why is checkout failing?",
+        cluster="demo-cluster",
+        namespace="shop",
+        service="checkout",
+        deployment="checkout",
+    )
+    late_investigation = store.get(UUID(late_result["investigation_id"]))
+    late_record = MemoryStore(store).approve(
+        late_investigation,
+        late_investigation.report,
+        reviewer="alice",
+        title="Late checkout selector record",
+        summary="A new record inserted after the first page snapshot.",
+    )
 
     second = search_memory(
         cluster="demo-cluster",
         namespace="shop",
         query="checkout selector",
         limit=1,
-        cursor=first["next_cursor"],
+        cursor=first_cursor,
     )
     assert second["count"] == 1
     assert second["has_more"] is True
-    assert second["next_cursor"] == "2"
+    assert second["next_cursor"] == f"{token}:2"
 
     third = search_memory(
         cluster="demo-cluster",
@@ -276,6 +296,7 @@ def test_mcp_memory_pagination_and_audit(monkeypatch, tmp_path):
         third["leads"][0]["record_id"],
     }
     assert len(record_ids) == 3
+    assert str(late_record.id) not in record_ids
 
     bad_cursor = search_memory(
         cluster="demo-cluster",
@@ -307,8 +328,63 @@ def test_mcp_memory_pagination_and_audit(monkeypatch, tmp_path):
     assert entries[0]["count"] == 1
     assert entries[0]["actor"] == "mcp"
     assert entries[0]["query_sha256"]
+    assert entries[0]["prev_sha256"] == ""
+    assert entries[1]["prev_sha256"] == entries[0]["entry_sha256"]
     assert entries[3]["error"] == "cursor must be a non-negative integer"
     assert entries[4]["error"] == "tenant is outside the configured server scope"
+
+    memory = MemoryStore(store)
+    ok, errors = memory.verify_audit()
+    assert ok is True
+    assert errors == []
+
+    fresh = search_memory(
+        cluster="demo-cluster",
+        namespace="shop",
+        query="checkout selector",
+        limit=5,
+    )
+    assert fresh["count"] == 4
+    assert str(late_record.id) in {lead["record_id"] for lead in fresh["leads"]}
+
+
+def test_memory_audit_rotates_and_verifies_across_files(monkeypatch, tmp_path):
+    configure_fixture(monkeypatch, tmp_path)
+    monkeypatch.setenv("INVESTIGATOR_MCP_AUDIT_MAX_BYTES", "1")
+    settings = Settings.from_env()
+    store = Store(settings.data_dir)
+    result = run_investigation(
+        question="Why is checkout failing?",
+        cluster="demo-cluster",
+        namespace="shop",
+        service="checkout",
+        deployment="checkout",
+    )
+    investigation = store.get(UUID(result["investigation_id"]))
+    MemoryStore(store).approve(
+        investigation,
+        investigation.report,
+        reviewer="alice",
+        title="Checkout selector mismatch",
+        summary="The checkout Service selector excluded the ready Deployment pods.",
+    )
+    for _ in range(3):
+        assert (
+            search_memory(
+                cluster="demo-cluster",
+                namespace="shop",
+                query="checkout selector",
+            )["count"]
+            == 1
+        )
+    memory = MemoryStore(store)
+    archived = list(settings.data_dir.glob("memory-audit.*.jsonl"))
+    assert len(archived) == 2
+    entries = memory.read_audit(10)
+    assert len(entries) == 3
+    ok, errors = memory.verify_audit()
+    assert ok is True
+    assert errors == []
 
 
 def test_mcp_source_status_abstains_without_inventing_evidence(monkeypatch, tmp_path):
@@ -359,6 +435,21 @@ def test_mcp_protocol_memory_schema_and_tenant_contract(monkeypatch, tmp_path):
         title="Checkout selector mismatch",
         summary="The checkout Service selector excluded the ready Deployment pods.",
     )
+    second_result = run_investigation(
+        question="Why is checkout failing?",
+        cluster="demo-cluster",
+        namespace="shop",
+        service="checkout",
+        deployment="checkout",
+    )
+    second = store.get(UUID(second_result["investigation_id"]))
+    MemoryStore(store).approve(
+        second,
+        second.report,
+        reviewer="alice",
+        title="Checkout selector mismatch second",
+        summary="A second local record for pagination.",
+    )
     foreign = investigation.model_copy(
         update={"scope": Scope(tenant="other", cluster="demo-cluster", namespace="shop")}
     )
@@ -370,7 +461,7 @@ def test_mcp_protocol_memory_schema_and_tenant_contract(monkeypatch, tmp_path):
         summary="This record must never be visible outside the other tenant.",
     )
 
-    async def check() -> None:
+    async def check() -> str:
         env = dict(os.environ)
         env["INVESTIGATOR_DATA_DIR"] = str(settings.data_dir)
         env["INVESTIGATOR_TENANT"] = "local"
@@ -402,9 +493,9 @@ def test_mcp_protocol_memory_schema_and_tenant_contract(monkeypatch, tmp_path):
                     "namespace": "shop",
                     "query": "checkout selector",
                 }
-                assert (await call(base))["count"] == 1
-                assert (await call({**base, "tenant": None}))["count"] == 1
-                assert (await call({**base, "tenant": "  local  "}))["count"] == 1
+                assert (await call(base))["count"] == 2
+                assert (await call({**base, "tenant": None}))["count"] == 2
+                assert (await call({**base, "tenant": "  local  "}))["count"] == 2
                 assert (await call({**base, "tenant": "other"}))["ok"] is False
                 assert (await call({**base, "tenant": "other"}))["error"] == (
                     "tenant is outside the configured server scope"
@@ -415,18 +506,88 @@ def test_mcp_protocol_memory_schema_and_tenant_contract(monkeypatch, tmp_path):
                 assert (await call({**base, "namespace": "Bad_NS"}))["error"] == (
                     "invalid memory search scope"
                 )
-                cursor_page = await call({**base, "limit": 1, "cursor": "1"})
-                assert cursor_page["ok"] is True
-                assert cursor_page["count"] == 0
-                assert cursor_page["has_more"] is False
+                page_one = await call({**base, "limit": 1})
+                assert page_one["ok"] is True
+                assert page_one["count"] == 1
+                assert page_one["has_more"] is True
+                cursor = page_one["next_cursor"]
+                assert cursor
+                page_two = await call({**base, "limit": 1, "cursor": cursor})
+                assert page_two["ok"] is True
+                assert page_two["count"] == 1
+                assert page_two["has_more"] is False
+                return cursor
 
-    asyncio.run(check())
+    cursor = asyncio.run(check())
     audit_path = settings.data_dir / "memory-audit.jsonl"
     entries = [json.loads(line) for line in audit_path.read_text().splitlines() if line]
     assert entries
     assert entries[-1]["actor"] == "mcp"
     assert entries[-1]["outcome"] == "ok"
-    assert entries[-1]["cursor"] == "1"
+    assert entries[-1]["cursor"] == cursor
+
+
+def test_two_mcp_servers_isolate_tenants(monkeypatch, tmp_path):
+    data_a = tmp_path / "tenant-a"
+    data_b = tmp_path / "tenant-b"
+    for data_dir, tenant in ((data_a, "tenant-a"), (data_b, "tenant-b")):
+        monkeypatch.setenv("INVESTIGATOR_DATA_DIR", str(data_dir))
+        monkeypatch.setenv("INVESTIGATOR_BACKEND", "fixture")
+        monkeypatch.setenv("INVESTIGATOR_SCENARIO", "selector-mismatch")
+        monkeypatch.setenv("INVESTIGATOR_REASONER", "deterministic")
+        result = run_investigation(
+            question="Why is checkout failing?",
+            cluster="demo-cluster",
+            namespace="shop",
+            service="checkout",
+            deployment="checkout",
+        )
+        settings = Settings.from_env()
+        store = Store(settings.data_dir)
+        investigation = store.get(UUID(result["investigation_id"]))
+        scoped = investigation.model_copy(
+            update={
+                "scope": Scope(
+                    tenant=tenant,
+                    cluster="demo-cluster",
+                    namespace="shop",
+                )
+            }
+        )
+        MemoryStore(store).approve(
+            scoped,
+            scoped.report,
+            reviewer="alice",
+            title=f"{tenant} checkout selector mismatch",
+            summary="A tenant-scoped record.",
+        )
+
+    async def call(tenant: str, data_dir, args: dict) -> dict:
+        env = dict(os.environ)
+        env["INVESTIGATOR_DATA_DIR"] = str(data_dir)
+        env["INVESTIGATOR_TENANT"] = tenant
+        env["INVESTIGATOR_SWITCH_MODE"] = "off"
+        params = StdioServerParameters(
+            command=sys.executable,
+            args=["-m", "kube_investigator.mcp_server"],
+            env=env,
+        )
+        async with stdio_client(params) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                response = await session.call_tool("kube_investigator_memory", args)
+                return json.loads(response.content[0].text)
+
+    base = {"cluster": "demo-cluster", "namespace": "shop", "query": "checkout selector"}
+    page_a = asyncio.run(call("tenant-a", data_a, base))
+    page_b = asyncio.run(call("tenant-b", data_b, base))
+    assert page_a["count"] == 1
+    assert page_b["count"] == 1
+    assert page_a["leads"][0]["record_id"] != page_b["leads"][0]["record_id"]
+
+    foreign = asyncio.run(call("tenant-a", data_a, {**base, "tenant": "tenant-b"}))
+    assert foreign["ok"] is False
+    assert foreign["error"] == "tenant is outside the configured server scope"
 
 
 def test_mcp_rejects_invalid_ids_and_limits(monkeypatch, tmp_path):

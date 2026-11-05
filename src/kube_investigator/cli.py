@@ -10,7 +10,6 @@ import sys
 from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
-from typing import Any
 from uuid import UUID, uuid4
 
 from pydantic import ValidationError
@@ -213,8 +212,15 @@ def parser() -> argparse.ArgumentParser:
     publish.add_argument("--json", action="store_true")
     audit = memory_commands.add_parser("audit", help="Show recent memory search audit entries")
     audit.add_argument("--limit", type=int, default=20)
+    audit.add_argument("--verify", action="store_true")
     audit.add_argument("--data-dir", type=Path)
     audit.add_argument("--json", action="store_true")
+    index = memory_commands.add_parser("index", help="Rebuild the semantic memory index")
+    index.add_argument("--tenant")
+    index.add_argument("--cluster")
+    index.add_argument("--namespace")
+    index.add_argument("--data-dir", type=Path)
+    index.add_argument("--json", action="store_true")
 
     trust = switch_commands.add_parser("trust", help="Read Switch Trust governance status")
     trust_commands = trust.add_subparsers(dest="trust_command", required=True)
@@ -1122,6 +1128,21 @@ def _switch_memory(args: argparse.Namespace) -> int:
         if scope is None:
             raise SwitchError("Memory search requires tenant, cluster, and namespace")
         leads = memory.search(scope=scope, query=args.query, limit=args.limit)
+        actor = (os.getenv("INVESTIGATOR_MCP_ACTOR") or "cli")[:120]
+        if not memory.audit_search(
+            actor=actor,
+            requested_tenant=args.tenant,
+            effective_tenant=scope.tenant,
+            cluster=scope.cluster,
+            namespace=scope.namespace,
+            query=args.query,
+            limit=args.limit,
+            cursor=None,
+            offset=0,
+            outcome="ok",
+            leads=leads,
+        ):
+            raise SwitchError("Memory audit failed")
         if args.json:
             print(
                 json.dumps(
@@ -1132,6 +1153,15 @@ def _switch_memory(args: argparse.Namespace) -> int:
             )
         else:
             print(memory.render_leads(leads))
+        return 0
+    if args.memory_command == "index":
+        scope = _scope_or_none(settings, args)
+        count = memory.rebuild_embeddings(scope=scope)
+        payload = {"indexed": count, "model": memory.embedding_model}
+        if args.json:
+            print(json.dumps(payload, indent=2, sort_keys=True))
+        else:
+            print(f"Indexed {count} approved records with {payload['model']}")
         return 0
     if args.memory_command == "publish":
         record = memory.get(args.id)
@@ -1187,18 +1217,16 @@ def _switch_memory(args: argparse.Namespace) -> int:
             print(f"Switch document: {document_id}")
         return 0
     if args.memory_command == "audit":
-        if args.limit < 1 or args.limit > 200:
-            raise SwitchError("Audit limit must be between 1 and 200")
-        path = settings.data_dir / "memory-audit.jsonl"
-        entries: list[dict[str, Any]] = []
-        if path.exists():
-            for line in path.read_text(encoding="utf-8").splitlines()[-args.limit :]:
-                try:
-                    entry = json.loads(line)
-                except ValueError:
-                    continue
-                if isinstance(entry, dict):
-                    entries.append(entry)
+        if args.verify:
+            ok, errors = memory.verify_audit()
+            if args.json:
+                print(json.dumps({"ok": ok, "errors": errors}, indent=2, sort_keys=True))
+            else:
+                print("Memory audit chain is valid." if ok else "Memory audit chain is invalid.")
+                for error in errors:
+                    print(f"- {error}")
+            return 0 if ok else 1
+        entries = memory.read_audit(args.limit)
         if args.json:
             print(json.dumps(entries, indent=2, sort_keys=True))
         else:

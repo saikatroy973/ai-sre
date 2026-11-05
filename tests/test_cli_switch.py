@@ -299,6 +299,24 @@ def test_memory_audit_lists_mcp_search_entries(tmp_path, monkeypatch, capsys):
         query="checkout selector",
     )
     assert result["count"] == 1
+    monkeypatch.delenv("INVESTIGATOR_MCP_ACTOR", raising=False)
+
+    assert (
+        main(
+            [
+                "switch",
+                "memory",
+                "search",
+                "--query",
+                "checkout selector",
+                "--data-dir",
+                str(data),
+                "--json",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
 
     assert (
         main(
@@ -314,12 +332,93 @@ def test_memory_audit_lists_mcp_search_entries(tmp_path, monkeypatch, capsys):
         == 0
     )
     entries = json.loads(capsys.readouterr().out)
-    assert len(entries) == 1
+    assert len(entries) == 2
     assert entries[0]["actor"] == "memory-researcher"
     assert entries[0]["outcome"] == "ok"
     assert entries[0]["count"] == 1
     assert entries[0]["query_sha256"]
+    assert entries[1]["actor"] == "cli"
+    assert entries[1]["prev_sha256"] == entries[0]["entry_sha256"]
     assert "checkout selector" not in json.dumps(entries)
+
+    assert (
+        main(
+            [
+                "switch",
+                "memory",
+                "audit",
+                "--verify",
+                "--data-dir",
+                str(data),
+                "--json",
+            ]
+        )
+        == 0
+    )
+    verification = json.loads(capsys.readouterr().out)
+    assert verification == {"ok": True, "errors": []}
+
+
+def test_memory_audit_chain_detects_tampering(tmp_path, monkeypatch, capsys):
+    data = tmp_path / "data"
+    assert main(["demo", "--json", "--data-dir", str(data)]) == 0
+    first = json.loads(capsys.readouterr().out)
+    monkeypatch.setenv("INVESTIGATOR_SWITCH_MODE", "off")
+    assert (
+        main(
+            [
+                "switch",
+                "memory",
+                "approve",
+                "--investigation",
+                first["id"],
+                "--reviewer",
+                "alice",
+                "--title",
+                "Checkout selector mismatch",
+                "--summary",
+                "The checkout Service selector excluded the ready Deployment.",
+                "--data-dir",
+                str(data),
+                "--json",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    monkeypatch.setenv("INVESTIGATOR_DATA_DIR", str(data))
+    assert (
+        search_memory(
+            cluster="demo-cluster",
+            namespace="shop",
+            query="checkout selector",
+        )["count"]
+        == 1
+    )
+    audit_path = data / "memory-audit.jsonl"
+    lines = audit_path.read_text().splitlines()
+    assert len(lines) == 1
+    entry = json.loads(lines[0])
+    entry["actor"] = "tampered"
+    audit_path.write_text(json.dumps(entry) + "\n")
+
+    assert (
+        main(
+            [
+                "switch",
+                "memory",
+                "audit",
+                "--verify",
+                "--data-dir",
+                str(data),
+                "--json",
+            ]
+        )
+        == 1
+    )
+    verification = json.loads(capsys.readouterr().out)
+    assert verification["ok"] is False
+    assert any("hash mismatch" in error for error in verification["errors"])
 
 
 def test_memory_approval_is_not_indexed_when_required_switch_is_unavailable(

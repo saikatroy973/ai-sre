@@ -177,17 +177,34 @@ The MCP `kube_investigator_memory` tool takes an optional nullable tenant. Omitt
 the configured server tenant; an explicit tenant is trimmed and must match that server tenant, so
 the tool cannot search another tenant. Empty/blank tenants and queries, overlong queries, invalid
 scope values, and limits outside 1–20 fail closed with sanitized errors. Results include
-`has_more` and `next_cursor`; pass the cursor back to page through the scoped records. A direct
-stdio MCP client test covers the schema, pagination, rejection cases, and audit output.
+`has_more` and `next_cursor`; the cursor references a short-lived ordered snapshot, so approvals
+inserted between pages do not shift or duplicate the remaining pages. A direct stdio MCP client
+test covers the schema, pagination, rejection cases, and audit output.
 
-Memory reads are audited to `memory-audit.jsonl` with the actor, effective tenant, scope, query
-hash (not the raw query), cursor, outcome, error, and result record IDs. Set
-`INVESTIGATOR_MCP_ACTOR` to label the caller. The audit is metadata-only and is separate from the
-memory index, so rejected reads are visible too:
+Memory reads are audited to hash-chained `memory-audit*.jsonl` files with the actor, effective
+tenant, scope, query hash (not the raw query), cursor, outcome, error, and result record IDs.
+Entries rotate at a configurable size and include `prev_sha256`/`entry_sha256`. Rejected reads and
+CLI `switch memory search` reads are audited too. Verify the chain with:
 
 ```sh
 kube-investigator switch memory audit --limit 20
+kube-investigator switch memory audit --verify
 ```
+
+Set `INVESTIGATOR_MCP_ACTOR` to label the caller. For a stronger credential check, set
+`INVESTIGATOR_MCP_PUBLIC_KEY` and pass a signed Ed25519 token in
+`INVESTIGATOR_MCP_ACTOR_TOKEN`; the server then rejects missing, expired, wrong-tenant, and
+wrong-actor tokens:
+
+```sh
+python scripts/mcp_actor_token.py keygen --out-dir .data/mcp-auth
+python scripts/mcp_actor_token.py sign \
+  --private-key .data/mcp-auth/mcp-actor-private.pem \
+  --actor memory-researcher --tenant local --ttl 3600
+```
+
+The private key stays with the operator; the MCP server only receives the public key. This is a
+credential check, not a replacement for OS/process isolation.
 
 Approved records can be published directly to the Console `k8s-memory` room:
 
@@ -198,6 +215,19 @@ kube-investigator switch memory publish --id <record-id> --console
 
 The live record `e984ecff-…` is attached to the Console memory room as document
 `ec18bbac-ebe4-46b3-98d4-f41618ac81da` (`3f13df47-4d6b-4707-99e8-c90a28ca9842`).
+
+An optional local semantic index is available with the `semantic` extra (`model2vec`). Rebuild it
+and search by meaning, with keyword matches still contributing to the score:
+
+```sh
+python -m pip install -e '.[semantic]'
+export INVESTIGATOR_MEMORY_SEMANTIC_MODEL='minishlab/potion-base-8M'
+kube-investigator switch memory index
+kube-investigator switch memory search --query 'routing failure'
+```
+
+The live index returned the checkout selector record for `routing failure`, while unrelated
+queries (`email delivery failure`, `weather forecast`, `database latency`) returned no records.
 
 ### Switch Trust and ROI
 
@@ -611,9 +641,10 @@ Not yet implemented or not yet verified:
 - The incident queue is multi-worker on one host with worker IDs, leases, stale-worker guards, and
   expired-lease recovery, but it is not a distributed cross-host queue. The 10-concurrent-incident
   and crash/restart production gate has not been run.
-- There is no semantic memory index, live telemetry/change source, Scale Agentex hosting, or
-  remediation executor. Roles are room briefings, not Kubernetes authorization or a security
-  boundary. A human-only room walkthrough and the 10 videos remain outstanding.
+- The semantic memory index is optional and disabled by default. Live telemetry/change sources,
+  Scale Agentex hosting, and a remediation executor are still absent. Roles are room briefings,
+  not Kubernetes authorization or a security boundary. A human-only room walkthrough and the 10
+  videos remain outstanding.
 
 ## Test
 
@@ -626,6 +657,6 @@ ruff format --check .
 Tests use fixtures, an in-memory Switch runtime, and mock HTTP transports; they do not access a
 cluster, Scale, or a live Switch server. The GitHub Actions `Tests` workflow
 [run 41961776947](https://github.com/saikatroy973/kube-investigator/actions/runs/41961776947)
-passed on Python 3.11, 3.13, and 3.14 for commit `73f5db4`; the local suite is 242 tests. See
+passed on Python 3.11, 3.13, and 3.14 for commit `73f5db4`; the local suite is 250 tests. See
 `docs/BUILD_PLAN.md` for the implementation sequence and `docs/SWITCH_NATIVE_PLAN.md` for the gap
 audit (2–11) and remaining production gates.

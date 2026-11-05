@@ -87,7 +87,7 @@ Implemented and verified live through **Switch Console**, the mandatory live age
   live Console runtime.
 
 Offline validation: `ruff check .`, `ruff format --check .`, and the full pytest suite pass
-(242 tests). The Switch protocol and Console API tests use an in-memory fake and
+(250 tests). The Switch protocol and Console API tests use an in-memory fake and
 `httpx.MockTransport`; the repository's test configuration forbids real sockets.
 
 Verified live for the optional self-hosted collaboration profile:
@@ -178,8 +178,8 @@ Not yet verified or not implemented:
 | 8. Collaboration bridges | Pass | Console Mattermost bridge; channel contains 10 mirrored investigation messages |
 | 9. Live Kubernetes / Scale | Partial | Live `kind-imesh` read abstained as designed; Scale Agentex/SGP has no credentials and is not deployed |
 | 10. Reliability | Partial | Leases, recovery, stale-worker guard, 2-worker and 30-job/4-worker tests; 10-room crash/restart drill not run |
-| 11. Security / autonomy | Partial | Read-only MCP tool allowlist test and live guardrails; no OS isolation, remediation, or reviewed approval path |
-| Memory tool contract | Pass | Tenant isolation, cursor pagination, metadata audit, Console memory-room publication, direct stdio MCP test |
+| 11. Security / autonomy | Partial | Read-only MCP tool allowlist, live guardrails, signed actor tokens, and hash-chained audit; no OS isolation, remediation, or Console-native approval click |
+| Memory tool contract | Pass | Tenant isolation, stable snapshot cursor, hash-chained rotating audit, Console memory-room publication, signed actor tokens, semantic index, two-server isolation test |
 
 
 ---
@@ -535,16 +535,26 @@ stdio MCP client, not only by calling the Python function:
   validation details.
 - `limit` is bounded to 1â€“20. Cross-namespace searches return no records. Every result carries
   `historical_leads_are_not_evidence` and `used_as_evidence: false`.
-- Results include `has_more` and `next_cursor`; passing the cursor pages through the same scoped
-  result set without duplicates.
-- Every read, including rejected reads, appends a metadata-only audit entry with the actor,
-  effective tenant, scope, query hash, cursor, outcome, error, and result record IDs. Set
-  `INVESTIGATOR_MCP_ACTOR` to label the caller; the raw query is never stored.
+- Results include `has_more` and `next_cursor`; the cursor references a short-lived ordered
+  snapshot, so new approvals between pages do not shift or duplicate the remaining results.
+- Every read, including rejected reads and CLI searches, appends a metadata-only audit entry with
+  the actor, effective tenant, scope, query hash, cursor, outcome, error, and result record IDs.
+  The audit is hash-chained, rotates at a configurable size, and `switch memory audit --verify`
+  checks the chain. The raw query is never stored.
+- Set `INVESTIGATOR_MCP_ACTOR` as the audit label. For a credential check, configure
+  `INVESTIGATOR_MCP_PUBLIC_KEY` and a signed Ed25519 token in `INVESTIGATOR_MCP_ACTOR_TOKEN`;
+  missing, expired, wrong-tenant, and wrong-actor tokens are rejected. The private key stays with
+  the operator. This does not replace OS/process isolation.
 - Approved records can be published directly to the Console `k8s-memory` room with
   `switch memory approve --console` or backfilled with `switch memory publish --id <id> --console`.
   The live record `e984ecff-â€¦` is attached as Console document `ec18bbac-â€¦`.
+- The optional `semantic` extra (`model2vec`) builds a local embedding index. Live queries for
+  `routing failure` matched the checkout selector record, while unrelated queries returned no
+  records. `switch memory index` rebuilds the index.
+- The two-server protocol test starts separate MCP processes with separate tenant/data directories
+  and verifies that each sees only its own record and that a foreign tenant is rejected.
 
-The direct protocol test is in `tests/test_mcp_server.py`; the full suite is 242 tests.
+The direct protocol test is in `tests/test_mcp_server.py`; the full suite is 250 tests.
 
 ---
 
@@ -887,7 +897,7 @@ Every episode must show a Switch surface and a working artifact. No episode is â
   citation, explicit difference, and historical-lead-only handling.
 - [x] Include source evidence/message IDs, trace, investigation, and content hash in retrieved
   memory leads.
-- [ ] Add the semantic index only if documents are insufficient.
+- [x] Add the optional local semantic index (`model2vec`) with a live conceptual-search check.
 - [x] Test memory poisoning, stale memory, and cross-namespace retrieval.
 - [ ] Add ROI model pricing and caps beyond the read-only client.
 
@@ -987,14 +997,15 @@ Every episode must show a Switch surface and a working artifact. No episode is â
 | No write/exec/secret tools | Pass (tool surface) | MCP tool allowlist; no OS sandbox |
 | Multi-worker queue claims | Pass (single host) | Lease recovery, stale-worker guard, 2-worker and 30-job/4-worker no-double-claim tests |
 | 10 concurrent incidents / crash restart | Not run | Requires a Console multi-room load and restart drill |
-| Distributed queue / semantic index / Scale hosting | Not implemented | Documented external gaps |
+| Optional semantic memory index | Pass | `model2vec`; live `routing failure` matched the checkout record; unrelated queries returned none |
+| Distributed queue / Scale hosting | Not implemented | Documented external gaps |
 
 ## 16. Open decisions
 
 1. **Switch server:** Console local demo or self-hosted Helm for the series?
 2. **Messaging app:** Slack for reach, Mattermost for a self-contained demo, or Teams?
 3. **Trust instance:** hosted `app.switchagents.ai` or a provisioned environment?
-4. **Memory:** documents/packages only, or add a semantic index?
+4. **Memory:** documents/packages plus the optional local semantic index; keep it disabled by default?
 5. **Runtime:** Console-managed agents only, or a custom agent-protocol worker pool for scale?
 6. **Remediation:** read-only series, or a gated write episode?
 7. **Sponsor:** if Scale AI remains a sponsor, which underlying model/eval services are required?
