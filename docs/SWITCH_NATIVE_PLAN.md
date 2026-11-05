@@ -166,6 +166,9 @@ Not yet verified or not implemented:
   to the room (`POST /gateway/rooms/{room_id}/users`) did not grant chat membership. The drill
   therefore verifies room history through the protocol harness, not through Console transcripts;
   the Console API itself is used to verify room registration, package attachment, and links.
+- The live Console registry accumulates disposable incident rooms from every drill and demo run
+  (79 rooms, 73 `incident-*`, at the 2026-11-05 snapshot). Cleanup is deliberately manual and
+  read-only: no repository code bulk-deletes Switch room state, and the drill only adds rooms.
 - The local Console demo uses OpenCode Auto mode because there is no separate human approval
   channel. Auto mode approves every provider tool request. The MCP evidence tools are read-only,
   but the demo is not an OS sandbox; a shared deployment needs dedicated OS accounts/containers
