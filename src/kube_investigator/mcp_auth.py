@@ -13,6 +13,7 @@ import base64
 import json
 import os
 import time
+from pathlib import Path
 from typing import Any
 
 from cryptography.exceptions import InvalidSignature
@@ -73,3 +74,62 @@ def authorize_actor(settings: Settings) -> tuple[str | None, str | None]:
     if configured_actor and payload["actor"] != configured_actor:
         return None, "MCP actor does not match the signed token"
     return payload["actor"], None
+
+
+PRIVATE_KEY_NAME = "mcp-actor-private.pem"
+
+
+def generate_actor_keypair(out_dir: Path) -> tuple[Path, str]:
+    """Create or reuse the operator keypair; return ``(private_path, public_key)``.
+
+    The directory is private; the PEM file is mode 0600 and is never printed
+    or logged.  Re-running against the same directory reuses the existing
+    key so tokens stay verifiable across setup runs.
+    """
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    out_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    private_path = out_dir / PRIVATE_KEY_NAME
+    if private_path.exists():
+        key = serialization.load_pem_private_key(private_path.read_bytes(), password=None)
+        if not isinstance(key, Ed25519PrivateKey):
+            raise ValueError(f"{private_path} is not an Ed25519 private key")
+    else:
+        key = Ed25519PrivateKey.generate()
+        private_path.write_bytes(
+            key.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.PKCS8,
+                encryption_algorithm=serialization.NoEncryption(),
+            )
+        )
+        os.chmod(private_path, 0o600)
+    public_raw = key.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+    return private_path, base64.urlsafe_b64encode(public_raw).rstrip(b"=").decode()
+
+
+def sign_actor_token(private_path: Path, actor: str, tenant: str, ttl: int) -> str:
+    """Return an Ed25519-signed ``payload.signature`` actor token."""
+    import time as _time
+
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    if ttl < 1:
+        raise ValueError("ttl must be positive")
+    if not actor or not tenant:
+        raise ValueError("actor and tenant are required")
+    key = serialization.load_pem_private_key(private_path.read_bytes(), password=None)
+    if not isinstance(key, Ed25519PrivateKey):
+        raise ValueError(f"{private_path} is not an Ed25519 private key")
+    now = int(_time.time())
+    payload = {"actor": actor, "tenant": tenant, "iat": now, "exp": now + ttl}
+    payload_bytes = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    signature = key.sign(payload_bytes)
+    token_payload = base64.urlsafe_b64encode(payload_bytes).rstrip(b"=").decode()
+    token_signature = base64.urlsafe_b64encode(signature).rstrip(b"=").decode()
+    return f"{token_payload}.{token_signature}"

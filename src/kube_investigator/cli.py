@@ -145,6 +145,23 @@ def parser() -> argparse.ArgumentParser:
     console_setup.add_argument("--provider", default="opencode")
     console_setup.add_argument("--controller-id")
     console_setup.add_argument(
+        "--actor-tokens",
+        action="store_true",
+        help="Give each agent its own directory and signed MCP actor token",
+    )
+    console_setup.add_argument(
+        "--auth-dir",
+        type=Path,
+        default=None,
+        help="Directory holding the MCP actor keypair (default <directory>/.data/mcp-auth)",
+    )
+    console_setup.add_argument(
+        "--token-ttl",
+        type=int,
+        default=1209600,
+        help="Console agent token lifetime in seconds (default 14 days)",
+    )
+    console_setup.add_argument(
         "--refresh", action="store_true", help="Update existing agent instructions"
     )
     console_setup.add_argument(
@@ -730,6 +747,11 @@ def _console_setup(client: ConsoleClient, args: argparse.Namespace) -> int:
     directory = args.directory.expanduser().resolve()
     if not directory.is_dir():
         raise ConfigurationError(f"Console agent directory does not exist: {directory}")
+    agent_dirs: dict[str, str] = {}
+    if args.actor_tokens:
+        agent_dirs = _wire_console_actor_tokens(args, directory)
+        if not agent_dirs:
+            return 1
     controllers = client.controllers()
     if args.controller_id:
         controller = next(
@@ -749,6 +771,7 @@ def _console_setup(client: ConsoleClient, args: argparse.Namespace) -> int:
     updated: list[str] = []
     for spec in AGENTS:
         instructions = console_instructions(spec.name)
+        agent_directory_arg = agent_dirs.get(spec.name, str(directory))
         current = existing.get(spec.name)
         if current is None:
             item = client.create_agent(
@@ -758,17 +781,16 @@ def _console_setup(client: ConsoleClient, args: argparse.Namespace) -> int:
                 controller_id=str(controller["id"]),
                 provider=args.provider,
                 instructions=instructions,
-                directory=str(directory),
+                directory=agent_directory_arg,
                 auto_mode=args.auto_mode,
             )
             created[spec.name] = str(item["agent_id"])
             continue
-        provider = (current.get("definition") or {}).get("provider")
-        if args.refresh and provider == args.provider:
+        if args.refresh or (args.actor_tokens and agent_directory_arg != str(directory)):
             client.update_agent(
                 str(current["agent_id"]),
                 instructions=instructions,
-                directory=str(directory),
+                directory=agent_directory_arg,
                 provider=args.provider,
                 auto_mode=args.auto_mode,
             )
@@ -804,6 +826,9 @@ def _console_setup(client: ConsoleClient, args: argparse.Namespace) -> int:
         "rooms": {key: room_names.get(name) for key, name in CORE_ROOMS.items()},
         "incident_kit_package_id": kit_package_id,
         "directory": str(directory),
+        "actor_tokens_enabled": bool(args.actor_tokens),
+        "agent_directories": agent_dirs,
+        "token_ttl_seconds": args.token_ttl if args.actor_tokens else None,
     }
     if args.json:
         print(json.dumps(payload, indent=2, sort_keys=True))
@@ -813,10 +838,54 @@ def _console_setup(client: ConsoleClient, args: argparse.Namespace) -> int:
         print(f"Created agent {name}: {agent_id}")
     for name in updated:
         print(f"Updated agent {name}")
+    if args.actor_tokens:
+        for name, path in sorted(agent_dirs.items()):
+            print(f"Actor token directory {name}: {path}")
     for key, room_id in sorted(payload["rooms"].items()):
         print(f"Room {key}: {room_id or 'not created'}")
     print(f"Working directory: {directory}")
     return 0
+
+
+def _wire_console_actor_tokens(args: argparse.Namespace, directory: Path) -> dict[str, str]:
+    """Write one opencode.json + signed token per agent; return name -> dir.
+
+    Fails closed: any exception aborts the setup before Console agents are
+    touched, leaving their current (shared) directory untouched.
+    """
+    from kube_investigator.switch.agent_config import (
+        DEFAULT_TOKEN_TTL_SECONDS,
+        mcp_auth_dir,
+        write_agent_directories,
+    )
+
+    data_dir = (directory / ".data").resolve()
+    auth_dir = (
+        args.auth_dir.expanduser().resolve()
+        if args.auth_dir is not None
+        else mcp_auth_dir(data_dir)
+    )
+    if args.token_ttl < 60:
+        print("Error: --token-ttl must be at least 60 seconds", file=sys.stderr)
+        return {}
+    if args.token_ttl > DEFAULT_TOKEN_TTL_SECONDS * 4:
+        print(
+            "Error: tokens are operational credentials; --token-ttl beyond a year is not supported",
+            file=sys.stderr,
+        )
+        return {}
+    try:
+        directories = write_agent_directories(
+            agent_names=[spec.name for spec in AGENTS],
+            data_dir=data_dir,
+            auth_dir=auth_dir,
+            python_bin=Path(sys.executable),
+            token_ttl=args.token_ttl,
+        )
+    except (OSError, ValueError) as exc:
+        print(f"Error: could not write actor token configs: {exc}", file=sys.stderr)
+        return {}
+    return {name: str(path) for name, path in sorted(directories.items())}
 
 
 def _console_incident(client: ConsoleClient, args: argparse.Namespace) -> int:

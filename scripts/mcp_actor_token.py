@@ -4,64 +4,29 @@
 from __future__ import annotations
 
 import argparse
-import base64
-import json
-import os
 import sys
-import time
 from pathlib import Path
 
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-
-
-def _b64(value: bytes) -> str:
-    return base64.urlsafe_b64encode(value).rstrip(b"=").decode()
-
-
-def _decode(value: str) -> bytes:
-    return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+from kube_investigator.mcp_auth import generate_actor_keypair, sign_actor_token
 
 
 def keygen(out_dir: Path) -> int:
-    out_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-    private_key = Ed25519PrivateKey.generate()
-    private_path = out_dir / "mcp-actor-private.pem"
-    private_path.write_bytes(
-        private_key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.PKCS8,
-            encryption_algorithm=serialization.NoEncryption(),
-        )
-    )
-    os.chmod(private_path, 0o600)
-    public_raw = private_key.public_key().public_bytes(
-        encoding=serialization.Encoding.Raw,
-        format=serialization.PublicFormat.Raw,
-    )
+    try:
+        private_path, public_key = generate_actor_keypair(out_dir)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
     print(f"private_key={private_path}")
-    print(f"public_key={_b64(public_raw)}")
+    print(f"public_key={public_key}")
     return 0
 
 
 def sign(private_path: Path, actor: str, tenant: str, ttl: int) -> int:
-    if ttl < 1:
-        print("ttl must be positive", file=sys.stderr)
+    try:
+        token = sign_actor_token(private_path, actor, tenant, ttl)
+    except (ValueError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
         return 1
-    if not actor or not tenant:
-        print("actor and tenant are required", file=sys.stderr)
-        return 1
-    private_key = serialization.load_pem_private_key(
-        private_path.read_bytes(),
-        password=None,
-    )
-    if not isinstance(private_key, Ed25519PrivateKey):
-        print("private key is not Ed25519", file=sys.stderr)
-        return 1
-    now = int(time.time())
-    payload = {"actor": actor, "tenant": tenant, "iat": now, "exp": now + ttl}
-    payload_bytes = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-    token = f"{_b64(payload_bytes)}.{_b64(private_key.sign(payload_bytes))}"
     print(token)
     return 0
 
