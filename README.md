@@ -656,7 +656,7 @@ ruff format --check .
 
 Tests use fixtures, an in-memory Switch runtime, and mock HTTP transports; they do not access a
 cluster, Scale, or a live Switch server. The GitHub Actions `Tests` workflow
-[run 41961776947](https://github.com/saikatroy973/kube-investigator/actions/runs/41961776947)
-passed on Python 3.11, 3.13, and 3.14 for commit `73f5db4`; the local suite is 250 tests. See
+[run 41967118414](https://github.com/saikatroy973/kube-investigator/actions/runs/41967118414)
+passed on Python 3.11, 3.13, and 3.14 for commit `bfe1c1d`; the local suite is 250 tests. See
 `docs/BUILD_PLAN.md` for the implementation sequence and `docs/SWITCH_NATIVE_PLAN.md` for the gap
 audit (2–11) and remaining production gates.
