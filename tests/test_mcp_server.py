@@ -359,6 +359,16 @@ def test_mcp_protocol_memory_schema_and_tenant_contract(monkeypatch, tmp_path):
         title="Checkout selector mismatch",
         summary="The checkout Service selector excluded the ready Deployment pods.",
     )
+    foreign = investigation.model_copy(
+        update={"scope": Scope(tenant="other", cluster="demo-cluster", namespace="shop")}
+    )
+    MemoryStore(store).approve(
+        foreign,
+        foreign.report,
+        reviewer="alice",
+        title="Foreign tenant checkout record",
+        summary="This record must never be visible outside the other tenant.",
+    )
 
     async def check() -> None:
         env = dict(os.environ)
