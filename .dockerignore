@@ -1,0 +1,16 @@
+.venv/
+.data/
+.git/
+tests/
+scripts/
+docs/
+deploy/
+!deploy/mcp-container/
+node_modules/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.sqlite3
+*.sqlite3-shm
+.env

@@ -888,8 +888,16 @@ Switch Trust guardrail events supplement it; they do not replace it.
 - [x] Add worker IDs, leases, expired-lease recovery, stale-worker guards, and 2-worker plus
   30-job/4-worker claim-and-complete tests.
 - [ ] Replace the single-host SQLite queue with a distributed cross-host task ledger.
-- [ ] Load-test concurrent rooms.
-- [ ] Kill/restart test with a Console-managed agent.
+- [x] Load-test concurrent rooms (reliability drill: 10 protocol rooms + 10 Console rooms;
+  `scripts/reliability_drill.py`).
+- [x] Kill/restart drill: queue worker SIGKILL mid-drill with proven lease-expiry recovery
+  (attempts=2 via a replacement worker), self-hosted Switch API restart with byte-identical
+  room history, Console-managed `opencode serve` SIGKILL (honest finding: no proactive
+  respawn; Console re-instantiates on demand, proven via an incident kickoff).
+- [x] Isolate the MCP server at the OS layer (`deploy/mcp-container/verify.sh`: non-root,
+  read-only, cap-drop ALL, network none; probes fail closed; see `docs/OS_ISOLATION.md`).
+- [x] Per-agent Console MCP actor tokens (`switch console setup --actor-tokens`): one
+  directory + signed Ed25519 identity per agent; `ok`/`missing`/`foreign` stdio probes.
 - [ ] Add ROI improvements review.
 - [ ] Add model profile experiments.
 - [ ] Add dashboard and runbook.
@@ -956,7 +964,32 @@ Switch Trust guardrail events supplement it; they do not replace it.
 
 ---
 
-### Current gate snapshot (2026-11-04)
+### Current gate snapshot (2026-11-05)
+
+| Gate | Status | Evidence / remaining work |
+| --- | --- | --- |
+| Selector mismatch supported with citations | Pass | Console selector-mismatch run; five persisted evidence IDs |
+| Healthy/ambiguous abstention | Pass | Console healthy run; live `kind-imesh` backend read abstained |
+| Every incident has a room from the template | Pass | Console incident creation and package attachment |
+| Every handoff is a room message | Pass | Console and protocol-harness transcripts |
+| Console incident room bridged to chat | Pass | Mattermost bridge `0907b3e3-…`; channel has 10 mirrored messages |
+| Trust evaluations | Partial | PII and secret runs 100/100 at score `1`; LLM01 stalled twice and was canceled; `claude-haiku-5-5` missing evaluation |
+| Trust guardrail enforcement | Partial | SDK gateway: `blocked=2`, `redacted=1`, `errored=2`; no successful redacted response (no credits) |
+| Trust Live traffic | Pass | OTel LangChain/OpenAI: 6 interactions, prompts, tokens, latency, `$0.0001339` cost |
+| Trust findings gate | Pass (current) | Historical 2 Critical `gpt-6-luna` findings reviewed; model left the 3-model inventory after the profile switch; gate passes on 1 Informational |
+| Model-evaluation review | Pass | `docs/TRUST_MODEL_REVIEW.md`; `claude-haiku-5-5` remains provisional (missing evaluation) |
+| Incomplete AI scan cannot pass | Pass | Provider preflight fails closed on `429`; the OpenCode job also fails if the scanner reports an incomplete AI stage |
+| AI CodeScan through OpenCode Go | Pass | Run `41893473483`; 4m16s; AI stage complete; 2 libraries, 2 organizations, 6 MCP servers, 0 secrets |
+| Nonzero ROI analysis | Partial | Nonzero cost telemetry; no ROI recommendation or optimization |
+| No write/exec/secret tools | Pass | MCP tool allowlist **and** OS sandbox: `deploy/mcp-container/verify.sh` gate (read-only, cap-drop ALL, network none, non-root uid, pids/memory caps) returned `ISOLATION-OK`; `docs/OS_ISOLATION.md` |
+| Multi-worker queue claims | Pass (single host) | Lease recovery, stale-worker guard, 2-worker and 30-job/4-worker no-double-claim tests; worker labels + configurable lease seconds |
+| 10 concurrent incidents / crash restart | Pass (drill) | `scripts/reliability_drill.py` protocol part: 10 identical-risk jobs → 10 unique rooms, all complete exactly once; SIGKILL of the labeled worker holding a running row; replacement worker recovered the expired lease (attempts=2) and completed the job; 6 transient Switch 4xx retried to completion; per-room trace-canary isolation (own trace present, no foreign trace); switch-restart part: docker API restart, 4 histories read, room preserved byte-identical; console-agent part: honest no-proactive-respawn finding, kickoff re-instantiates the runtime (agents 6→6, rooms 64→65); console-rooms part: 10 concurrent Console rooms registered (registry 75). `verify-protocol` re-gate on the 2026-11-05 drill dir: 10/10 at ≥38 events/room |
+| Per-agent attributed memory identities | Pass | `switch console setup --actor-tokens`: six Console agents patched to per-agent directories with signed Ed25519 tokens (14-day TTL, 0600 configs, keypair 0700/0600 under `.data/mcp-auth`); stdio probes: valid accepted (`ok`), token dropped fails closed (`required`), foreign actor rejected (`does not match the signed token`); CI: 259 tests skip-safe |
+| OS isolation prototype | Pass (prototype) | `deploy/mcp-container/`: `ISOLATION-OK` (uid-isolation, filesystem-isolation, network-isolation, mcp-stdio-handshake) on this machine; docker-reachable test gate otherwise skips; `docs/OS_ISOLATION.md` records limits (Console migration pending; `--network none` fails `run` closed by design) |
+| Optional semantic memory index | Pass | `model2vec`; live `routing failure` matched the checkout record; unrelated queries returned none |
+| Distributed queue / Scale hosting | Not implemented | Documented external gaps |
+
+### Previous gate snapshot (2026-11-04)
 
 | Gate | Status | Evidence / remaining work |
 | --- | --- | --- |

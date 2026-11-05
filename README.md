@@ -656,6 +656,32 @@ ruff format --check .
 Tests use fixtures, an in-memory Switch runtime, and mock HTTP transports; they do not access a
 cluster, Scale, or a live Switch server. The GitHub Actions `Tests` workflow
 [run 41967118414](https://github.com/saikatroy973/kube-investigator/actions/runs/41967118414)
-passed on Python 3.11, 3.13, and 3.14 for commit `bfe1c1d`; the local suite is 250 tests. See
+passed on Python 3.11, 3.13, and 3.14 for commit `bfe1c1d`; the local suite is 259 tests. See
 `docs/BUILD_PLAN.md` for the implementation sequence and `docs/SWITCH_NATIVE_PLAN.md` for the gap
 audit (2–11) and remaining production gates.
+
+## Reliability drill and hardening
+
+```sh
+# Live drill: 10 rooms through leased workers, SIGKILL of the labeled worker
+# holding a running job, replacement-worker lease recovery, Switch API and
+# Console agent restart legs, and 10 concurrent Console rooms.
+.venv/bin/python scripts/reliability_drill.py protocol --rooms 10 --workers 3 --lease 20
+.venv/bin/python scripts/reliability_drill.py switch-restart
+.venv/bin/python scripts/reliability_drill.py console-agent --console-kickoff
+.venv/bin/python scripts/reliability_drill.py console-rooms --rooms 10
+# Re-gate an existing drill directory without running anything.
+.venv/bin/python scripts/reliability_drill.py verify-protocol --data-dir <drill-dir>
+```
+
+Hardening you should wire before showing the agent to anyone else:
+
+- **Per-agent actor tokens.** `kube-investigator switch console setup --directory . \
+  --actor-tokens` gives every Console agent its own directory and an Ed25519-signed
+  `INVESTIGATOR_MCP_ACTOR_TOKEN` (14-day TTL by default); memory reads then attribute to the
+  signed identity and fail closed on missing, foreign, or expired tokens
+  (`scripts/mcp_token_probe.py` proves `ok`/`missing`/`foreign` over a real stdio spawn).
+- **OS isolation.** `bash deploy/mcp-container/verify.sh` builds a non-root, read-only,
+  capability-less, network-less MCP container and gates four probes (`uid-isolation`,
+  `filesystem-isolation`, `network-isolation`, `mcp-stdio-handshake`); details and limits:
+  `docs/OS_ISOLATION.md`.
