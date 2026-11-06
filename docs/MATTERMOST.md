@@ -158,7 +158,7 @@ Role behaviour:
 | incident-commander | severity summary, root cause, first action, dispatch plan |
 | cluster-investigator | full finding list and namespaces (answers namespace questions first) |
 | change-analyst | zero-replica ReplicaSet history and image revisions |
-| telemetry-analyst | abstains (no telemetry source), points at the live state findings |
+| telemetry-analyst | live pod-log error lines and metrics-server usage when configured; otherwise guidance from its observability playbook |
 | memory-researcher | approved-record summary, leads not evidence |
 | evidence-verifier | re-runs the audit and states confirmed findings |
 

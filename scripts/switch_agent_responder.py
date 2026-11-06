@@ -26,6 +26,7 @@ import sys
 import time
 from contextlib import ExitStack
 from pathlib import Path
+from typing import Any
 
 import httpx
 
@@ -94,6 +95,19 @@ def kubectl_json(context: str, arguments: list[str], timeout: float = 25) -> dic
     except ValueError:
         return {}
     return payload if isinstance(payload, dict) else {}
+
+
+def kubectl_raw(context: str, arguments: list[str], timeout: float = 25) -> bytes | None:
+    try:
+        result = subprocess.run(
+            ["kubectl", "--context", context, *arguments],
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return result.stdout if result.returncode == 0 else None
 
 
 def namespaces_in(context: str) -> set[str]:
@@ -425,6 +439,61 @@ def docs_reference(data_dir: Path, audit: dict, agent: str, body: str = "") -> s
     return f" {label}: {result['title']} - {result['url']}"
 
 
+def live_telemetry(context: str, namespace: str | None, focus: str | None = None) -> dict[str, Any]:
+    """Metrics-server usage plus recent error lines from live pod logs."""
+    scope = ["-n", namespace] if namespace else ["-A"]
+    metrics_lines: list[str] = []
+    metrics_raw = kubectl_raw(context, ["top", "pods", *scope, "--no-headers"])
+    if metrics_raw:
+        for line in metrics_raw.decode("utf-8", "replace").splitlines():
+            text = " ".join(line.split())
+            if focus and focus not in text:
+                continue
+            metrics_lines.append(text)
+            if len(metrics_lines) >= 4:
+                break
+    log_lines: list[str] = []
+    checked = 0
+    pods_raw = kubectl_raw(context, ["get", "pods", *scope, "-o", "json"])
+    if pods_raw:
+        try:
+            pods = json.loads(pods_raw).get("items", [])
+        except ValueError:
+            pods = []
+        seen = 0
+        for pod in pods:
+            status = pod.get("status") or {}
+            metadata = pod.get("metadata") or {}
+            restarts = sum(
+                int(c.get("restartCount") or 0) for c in status.get("containerStatuses") or []
+            )
+            ready = any(
+                condition.get("type") == "Ready" and condition.get("status") == "True"
+                for condition in status.get("conditions") or []
+            )
+            if not restarts and ready:
+                continue
+            name = str(metadata.get("name"))
+            ns = str(metadata.get("namespace"))
+            if focus and focus not in name:
+                continue
+            checked += 1
+            logs_raw = kubectl_raw(context, ["logs", name, "-n", ns, "--tail=60", "--since=45m"])
+            if not logs_raw:
+                continue
+            errors = [
+                line.strip()
+                for line in logs_raw.decode("utf-8", "replace").splitlines()
+                if re.search(r"error|exception|fail|refused|timeout|panic|warn", line, re.I)
+            ][:2]
+            if errors:
+                log_lines.append(f"{ns}/{name}: {' | '.join(errors)}")
+                seen += 1
+            if seen >= 2:
+                break
+    return {"metrics": metrics_lines, "logs": log_lines, "checked": checked}
+
+
 def telemetry_query(body: str) -> str:
     """Turn an observability question into terms that select the right section."""
     low = body.lower()
@@ -611,21 +680,51 @@ def deterministic_reply(
             )
         )
     if agent == "telemetry-analyst":
+        focus = audit.get("focus_name")
+        live = live_telemetry(context, namespace, str(focus) if focus else None)
+        has_live = bool(live["metrics"] or live["logs"])
         if re.search(
             r"\b(access|configured|available|do you have|can you (read|see|query))\b", body, re.I
         ):
+            if has_live:
+                sample = "; ".join(live["metrics"][:2] or live["logs"][:1])
+                return (
+                    f"@{sender} yes - live pod logs (Kubernetes API) and metrics-server "
+                    f"are configured. Sample: {sample}"
+                )
             return (
                 f"@{sender} no - I have no log or metric access in this deployment. "
                 "`source_status(telemetry)` reports configured=false, and no Loki, "
-                "Prometheus, or OTLP endpoint is wired. Configure a telemetry source and "
-                "I can query logs/metrics/traces within bounded time ranges."
+                "Prometheus, or OTLP endpoint is wired."
+            )
+        if has_live and re.search(
+            r"error|fail|refused|timeout|crash|oom|latency|slow|cpu|memory|usage|resource|pod|log|metric",
+            body,
+            re.I,
+        ):
+            parts = []
+            if live["metrics"]:
+                parts.append("live usage: " + " | ".join(live["metrics"]))
+            if live["logs"]:
+                parts.append("recent log errors: " + " | ".join(live["logs"]))
+            elif live["checked"]:
+                parts.append(
+                    f"no error-level lines in the last 45m from {live['checked']} "
+                    f"{focus or 'namespace'} pod(s)"
+                )
+            return (
+                f"@{sender} " + "; ".join(parts) + ". "
+                "Source: Kubernetes pod logs and metrics-server."
             )
         snippet = knowledge_snippet(data_dir, telemetry_query(body), agent)
         if snippet is not None:
+            prefix = (
+                "Live metrics/logs are available; guidance: "
+                if has_live
+                else "No live metrics or log source is configured; guidance: "
+            )
             return (
-                f"@{sender} I have no live metrics or log source configured, so I cannot "
-                "read current telemetry. Guidance from the observability playbook: "
-                f"{snippet['passage']} "
+                f"@{sender} {prefix}{snippet['passage']} "
                 f"Source: {snippet['title']} - {snippet['url']}"
             )
         return (
@@ -861,6 +960,7 @@ def main() -> int:
                         namespace = str(focus["namespace"])
                         audit = collect(args.context, namespace, namespaces)
                         target = f"{namespace}/{focus['name']}"
+                        audit["focus_name"] = str(focus["name"])
                         audit["findings"] = [
                             finding
                             for finding in audit["findings"]

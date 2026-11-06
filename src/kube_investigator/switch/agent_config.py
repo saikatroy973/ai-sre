@@ -92,13 +92,23 @@ def agent_environment(
     tenant: str = "local",
 ) -> dict[str, str]:
     """The MCP environment for one Console agent, per the auth contract."""
-    return {
+    environment = {
         "INVESTIGATOR_MCP_ACTOR": agent_name,
         "INVESTIGATOR_MCP_ACTOR_TOKEN": token,
         "INVESTIGATOR_MCP_PUBLIC_KEY": public_key,
         "INVESTIGATOR_DATA_DIR": str(data_dir.resolve()),
         "INVESTIGATOR_TENANT": tenant,
     }
+    for key in (
+        "INVESTIGATOR_BACKEND",
+        "INVESTIGATOR_KUBE_CONTEXT",
+        "INVESTIGATOR_CLUSTER",
+        "INVESTIGATOR_NAMESPACES",
+    ):
+        value = (os.getenv(key) or "").strip()
+        if value:
+            environment[key] = value
+    return environment
 
 
 def write_agent_config(

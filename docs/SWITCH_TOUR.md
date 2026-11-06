@@ -193,9 +193,11 @@ kube-investigator audit --verify
 bash deploy/mcp-container/verify.sh            # optional, needs Docker
 ```
 
-Seven tools: `health` (liveness only), `run`, `get`, `verify`, `memory`,
-`source_status`, and `docs` (Kubernetes docs + the caller's own SRE playbook;
-scoped by the signed actor and granted to all six roles). The docs index is built from the upstream English Kubernetes documentation
+Nine tools: `health` (liveness only), `run`, `get`, `verify`, `memory`,
+`source_status`, `docs` (Kubernetes docs + the caller's own SRE playbook; scoped
+by the signed actor and granted to all six roles), and the live-source tools
+`logs` and `metrics` (bounded pod logs and metrics-server usage, granted only to
+`telemetry-analyst`). The docs index is built from the upstream English Kubernetes documentation
 (`scripts/index_kubernetes_docs.py`) and every result carries a
 `kubernetes.io` URL. Least privilege is enforced from signed `tools` claims; every
 authenticated call writes an actor-attributed, hash-chained row; the evidence

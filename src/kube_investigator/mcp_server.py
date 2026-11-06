@@ -26,13 +26,14 @@ from kube_investigator.audit import append_audit
 from kube_investigator.auth import Principal
 from kube_investigator.config import Settings
 from kube_investigator.coordinator import build_coordinator
-from kube_investigator.errors import InvestigatorError
+from kube_investigator.errors import ConfigurationError, InvestigatorError
 from kube_investigator.knowledge import index_path, search_docs
 from kube_investigator.mcp_auth import authorize_actor, authorize_tool
 from kube_investigator.models import Candidate, InvestigationRequest, Scope
 from kube_investigator.storage import Store
 from kube_investigator.switch.memory import MemoryStore
 from kube_investigator.telemetry import configure_tracing
+from kube_investigator.telemetry_source import read_logs, read_metrics
 from kube_investigator.verification import EvidenceVerifier
 
 mcp = FastMCP(
@@ -494,6 +495,26 @@ def source_status(source: Literal["telemetry", "change", "kubernetes"]) -> dict[
             backend=settings.backend,
             **audit_fields,
         )
+    if source == "telemetry" and settings.backend == "kubernetes":
+        result = {
+            "ok": True,
+            "source": source,
+            "configured": True,
+            "sources": ["pod-logs", "metrics-server"],
+            "backend": settings.backend,
+            "kube_context": settings.kube_context,
+            "read_only": True,
+        }
+        return _audited_result(
+            settings,
+            tool="source_status",
+            actor=actor,
+            outcome="ok",
+            result=result,
+            configured=True,
+            backend=settings.backend,
+            **audit_fields,
+        )
     result = {
         "ok": True,
         "source": source,
@@ -515,6 +536,96 @@ def source_status(source: Literal["telemetry", "change", "kubernetes"]) -> dict[
         result=result,
         configured=result["configured"],
         status=result["status"],
+        **audit_fields,
+    )
+
+
+@mcp.tool()
+def kube_investigator_logs(
+    namespace: str,
+    pod: str | None = None,
+    container: str | None = None,
+    selector: str | None = None,
+    tail_lines: int = 100,
+    since_seconds: int = 900,
+    previous: bool = False,
+) -> dict[str, Any]:
+    """Read bounded, redacted pod logs from the configured live cluster."""
+    settings = _settings()
+    actor, auth_error = authorize_tool(settings, "logs")
+    audit_fields = {
+        "namespace": namespace,
+        "pod": pod,
+        "selector": selector,
+        "tail_lines": tail_lines,
+    }
+    if auth_error is not None:
+        return _reject(settings, tool="logs", actor=actor, error=auth_error, **audit_fields)
+    try:
+        result = read_logs(
+            settings,
+            namespace=namespace,
+            pod=pod,
+            container=container,
+            selector=selector,
+            tail_lines=tail_lines,
+            since_seconds=since_seconds,
+            previous=previous,
+        )
+    except ConfigurationError as exc:
+        error = str(exc)
+        return _audited_result(
+            settings,
+            tool="logs",
+            actor=actor,
+            outcome="error",
+            result={"ok": False, "error": error},
+            error=error,
+            **audit_fields,
+        )
+    return _audited_result(
+        settings,
+        tool="logs",
+        actor=actor,
+        outcome="ok",
+        result={"ok": True, **result, "read_only": True},
+        pods=len(result.get("results", [])),
+        **audit_fields,
+    )
+
+
+@mcp.tool()
+def kube_investigator_metrics(
+    namespace: str | None = None,
+    scope: Literal["pods", "nodes"] = "pods",
+    pod: str | None = None,
+) -> dict[str, Any]:
+    """Read live CPU/memory usage from metrics-server."""
+    settings = _settings()
+    actor, auth_error = authorize_tool(settings, "metrics")
+    audit_fields = {"namespace": namespace, "scope": scope, "pod": pod}
+    if auth_error is not None:
+        return _reject(settings, tool="metrics", actor=actor, error=auth_error, **audit_fields)
+    try:
+        result = read_metrics(settings, namespace=namespace, scope=scope, pod=pod)
+    except ConfigurationError as exc:
+        error = str(exc)
+        return _audited_result(
+            settings,
+            tool="metrics",
+            actor=actor,
+            outcome="error",
+            result={"ok": False, "error": error},
+            error=error,
+            **audit_fields,
+        )
+    return _audited_result(
+        settings,
+        tool="metrics",
+        actor=actor,
+        outcome="ok",
+        result={"ok": True, **result, "read_only": True},
+        items=len(result.get("items", [])),
         **audit_fields,
     )
 

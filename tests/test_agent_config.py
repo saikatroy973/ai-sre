@@ -264,7 +264,7 @@ def test_tokens_carry_role_specific_tool_claims(wired):
     expected = {
         "incident-commander": {"docs", "get", "memory", "run", "source_status", "verify"},
         "cluster-investigator": {"docs", "get", "source_status", "verify"},
-        "telemetry-analyst": {"docs", "get", "source_status"},
+        "telemetry-analyst": {"docs", "get", "logs", "metrics", "source_status"},
         "change-analyst": {"docs", "get", "source_status"},
         "memory-researcher": {"docs", "memory"},
         "evidence-verifier": {"docs", "get", "verify"},

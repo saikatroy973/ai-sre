@@ -36,11 +36,13 @@ from kube_investigator.config import Settings
 # Tools that require a signed actor and participate in least-privilege checks.
 # ``health`` is deliberately not here: it stays open as a liveness probe and
 # exposes only non-sensitive data when unauthenticated.
-AUTHENTICATED_TOOLS = frozenset({"run", "get", "verify", "memory", "source_status", "docs"})
+AUTHENTICATED_TOOLS = frozenset(
+    {"run", "get", "verify", "memory", "source_status", "docs", "logs", "metrics"}
+)
 ROLE_TOOL_GRANTS: dict[str, tuple[str, ...]] = {
     "incident-commander": ("docs", "get", "memory", "run", "source_status", "verify"),
     "cluster-investigator": ("docs", "get", "source_status", "verify"),
-    "telemetry-analyst": ("docs", "get", "source_status"),
+    "telemetry-analyst": ("docs", "get", "logs", "metrics", "source_status"),
     "change-analyst": ("docs", "get", "source_status"),
     "memory-researcher": ("docs", "memory"),
     "evidence-verifier": ("docs", "get", "verify"),

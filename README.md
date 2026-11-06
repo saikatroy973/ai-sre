@@ -248,6 +248,38 @@ kube-investigator maintenance prune --investigation-days 90 --audit-days 30 --dr
 kube-investigator maintenance prune --investigation-days 90 --audit-days 30 --vacuum
 ```
 
+**Live telemetry (logs and metrics).** With `INVESTIGATOR_BACKEND=kubernetes` and
+`INVESTIGATOR_KUBE_CONTEXT` set, the telemetry analyst gets two read-only tools in
+addition to `source_status`:
+
+- `kube_investigator_logs(namespace, pod?, selector?, tail_lines<=200, since_seconds<=3600)` —
+  bounded pod logs from the Kubernetes API; obvious credential values are redacted and
+  every call is actor-audited;
+- `kube_investigator_metrics(namespace?, scope=pods|nodes)` — live CPU/memory from
+  metrics-server.
+
+Install metrics-server in kind (or use your own Prometheus-compatible source):
+
+```sh
+kubectl --context kind-imesh apply -f \
+  https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+kubectl --context kind-imesh -n kube-system patch deployment metrics-server --type=json \
+  -p '[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
+kubectl --context kind-imesh top pods -n imesh-demo
+```
+
+Pass the live settings through Console setup so the agent MCP children inherit them:
+
+```sh
+export INVESTIGATOR_BACKEND=kubernetes INVESTIGATOR_KUBE_CONTEXT=kind-imesh
+export INVESTIGATOR_CLUSTER=kind-imesh INVESTIGATOR_NAMESPACES=imesh-demo
+kube-investigator switch console setup --directory . --refresh
+```
+
+`source_status("telemetry")` then reports `configured: true` with
+`sources: ["pod-logs","metrics-server"]`. Only `telemetry-analyst` holds the
+`logs` and `metrics` claims; other roles are denied by the token check.
+
 Set `INVESTIGATOR_MCP_ACTOR` to label the caller in development mode. For a signed credential
 check, set `INVESTIGATOR_MCP_PUBLIC_KEY` and pass a signed Ed25519 token in
 `INVESTIGATOR_MCP_ACTOR_TOKEN`; **every tool call except `health`** (run/get/verify/memory/
