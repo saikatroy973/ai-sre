@@ -389,6 +389,25 @@ def deployment_history(context: str, namespace: str | None) -> list[str]:
     return lines[:8]
 
 
+def knowledge_snippet(data_dir: Path, query: str, agent: str) -> dict[str, str] | None:
+    """Return the best knowledge passage for a question, if one matches."""
+    results = search_docs(data_dir, query, 1, agent=agent)
+    if not results:
+        return None
+    result = results[0]
+    passage = result.get("passage", "")
+    for marker in ("[", "]"):
+        passage = passage.replace(marker, "")
+    passage = " ".join(passage.split())
+    if not passage:
+        return None
+    return {
+        "title": result["title"],
+        "url": result["url"],
+        "passage": passage[:420],
+    }
+
+
 def docs_reference(data_dir: Path, audit: dict, agent: str, body: str = "") -> str:
     """Return one cited knowledge passage for the question and its findings."""
     query = (
@@ -400,6 +419,14 @@ def docs_reference(data_dir: Path, audit: dict, agent: str, body: str = "") -> s
     result = results[0]
     label = "Knowledge" if result["path"].startswith("knowledge/") else "K8s reference"
     return f" {label}: {result['title']} - {result['url']}"
+
+
+def knowledge_suffix(data_dir: Path, body: str, agent: str) -> str:
+    """Return a quoted playbook passage for guidance questions, else a citation."""
+    snippet = knowledge_snippet(data_dir, body, agent)
+    if snippet is None:
+        return ""
+    return f" Guidance: {snippet['passage']} Source: {snippet['title']} - {snippet['url']}"
 
 
 def memory_facts(data_dir: Path) -> str:
@@ -560,11 +587,23 @@ def deterministic_reply(
         return (
             f"@{sender} change view for {scope}: {audit['deployments']} deployments; {tail} "
             "Repeated restarts line up with the node pause, not with a current rollout."
-            + docs_reference(data_dir, audit, agent, body)
+            + (
+                knowledge_suffix(data_dir, body, agent)
+                or docs_reference(data_dir, audit, agent, body)
+            )
         )
     if agent == "telemetry-analyst":
+        snippet = knowledge_snippet(data_dir, body or "telemetry signals", agent)
+        if snippet is not None:
+            return (
+                f"@{sender} I have no live metrics or log source configured, so I cannot read "
+                "current telemetry. Guidance from the observability playbook: "
+                f"{snippet['passage']} "
+                f"Source: {snippet['title']} - {snippet['url']}"
+            )
         return (
-            f"@{sender} no metrics or log source is configured, so I cannot correlate telemetry. "
+            f"@{sender} no metrics or log source is configured, "
+            "so I cannot read current telemetry. "
             f"The live Kubernetes state shows {len(findings)} finding(s); "
             "cluster-investigator owns that evidence."
             + docs_reference(data_dir, audit, agent, body)
@@ -573,7 +612,10 @@ def deterministic_reply(
         return (
             f"@{sender} {memory_facts(data_dir)} "
             "Ask with a cluster/namespace to retrieve matching leads."
-            + docs_reference(data_dir, audit, agent, body)
+            + (
+                knowledge_suffix(data_dir, body, agent)
+                or docs_reference(data_dir, audit, agent, body)
+            )
         )
     fresh = collect(context, namespace, set(audit.get("namespaces") or []))
     titles = "; ".join(finding["title"] for finding in fresh["findings"][:4]) or "none"
@@ -581,7 +623,7 @@ def deterministic_reply(
         f"@{sender} I re-ran the checks independently over {scope}: "
         f"{fresh['nodes']}, {fresh['pods']}, {len(fresh['findings'])} finding(s) ({titles}). "
         "Evidence is from live read-only API reads at this moment; no mutation performed."
-        + docs_reference(data_dir, audit, agent, body)
+        + (knowledge_suffix(data_dir, body, agent) or docs_reference(data_dir, audit, agent, body))
     )
 
 
