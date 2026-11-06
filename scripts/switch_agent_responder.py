@@ -249,6 +249,65 @@ def collect(context: str, namespace: str | None = None, namespaces: set[str] | N
                 }
             )
 
+    pods_by_ns: dict[str, list[dict]] = {}
+    for pod in pods:
+        metadata = pod.get("metadata") or {}
+        pods_by_ns.setdefault(str(metadata.get("namespace")), []).append(pod)
+    port_mismatch: dict[str, str] | None = None
+    for service in services:
+        metadata = service.get("metadata") or {}
+        name = str(metadata.get("name"))
+        ns = str(metadata.get("namespace"))
+        selector = (service.get("spec") or {}).get("selector") or {}
+        if not selector:
+            continue
+        selected = [
+            pod
+            for pod in pods_by_ns.get(ns, [])
+            if (pod.get("status") or {}).get("phase") == "Running"
+            and all(
+                ((pod.get("metadata") or {}).get("labels") or {}).get(key) == value
+                for key, value in selector.items()
+            )
+        ]
+        if not selected:
+            continue
+        exposed_numbers: set[int] = set()
+        exposed_names: set[str] = set()
+        for pod in selected:
+            for container in (pod.get("spec") or {}).get("containers") or []:
+                for port in container.get("ports") or []:
+                    if isinstance(port.get("containerPort"), int):
+                        exposed_numbers.add(port["containerPort"])
+                    if isinstance(port.get("name"), str):
+                        exposed_names.add(port["name"])
+        for port in (service.get("spec") or {}).get("ports") or []:
+            target = port.get("targetPort")
+            if target is None:
+                target = port.get("port")
+            matches = (isinstance(target, int) and target in exposed_numbers) or (
+                isinstance(target, str) and target in exposed_names
+            )
+            if matches:
+                continue
+            observed = ",".join(str(number) for number in sorted(exposed_numbers)) or "none"
+            findings.append(
+                {
+                    "severity": "high",
+                    "title": "service targetPort not exposed by pod",
+                    "evidence": (
+                        f"{ns}/{name} targetPort={target}; pod containerPorts=[{observed}]; "
+                        "endpoints exist"
+                    ),
+                }
+            )
+            if port_mismatch is None:
+                port_mismatch = {
+                    "service": f"{ns}/{name}",
+                    "target": str(target),
+                    "observed": observed,
+                }
+
     for job in jobs:
         status = job.get("status") or {}
         if int(status.get("failed") or 0) > 0:
@@ -285,6 +344,24 @@ def collect(context: str, namespace: str | None = None, namespaces: set[str] | N
         "deployments": len(deployments),
         "services": len(services),
         "namespaces": sorted(namespaces or []),
+        "resource_names": [
+            {"namespace": ns, "name": name, "kind": kind}
+            for kind, items in (("Service", services), ("Deployment", deployments))
+            for item in items
+            for ns, name in [
+                (
+                    str((item.get("metadata") or {}).get("namespace")),
+                    str((item.get("metadata") or {}).get("name")),
+                )
+            ]
+        ],
+        "port_mismatch": port_mismatch,
+        "port_mismatch_text": (
+            f"{port_mismatch['service']} sends traffic to {port_mismatch['target']} "
+            f"but its pods listen on {port_mismatch['observed']}, so connections are refused"
+            if port_mismatch
+            else ""
+        ),
         "findings": findings,
         "text": (
             f"context={context}; nodes {ready_nodes}/{len(nodes)} ready; "
@@ -342,6 +419,19 @@ def memory_facts(data_dir: Path) -> str:
 # --- replies --------------------------------------------------------------
 
 
+def focused_resource(body: str, audit: dict) -> dict | None:
+    """Return the service/deployment the message names, if any."""
+    best: dict | None = None
+    for resource in audit.get("resource_names") or []:
+        name = str(resource.get("name") or "")
+        if len(name) < 4:
+            continue
+        if re.search(rf"\b{re.escape(name)}\b", body, re.IGNORECASE):
+            if best is None or len(name) > len(str(best.get("name"))):
+                best = resource
+    return best
+
+
 def findings_lines(audit: dict, limit: int = 6) -> list[str]:
     return [
         f"- [{finding['severity']}] {finding['title']} — {finding['evidence']}"
@@ -362,9 +452,9 @@ def root_cause(audit: dict) -> str | None:
         if finding["title"] == "service has no endpoints"
     }
     linked = sorted(zero & empty)
-    if not linked:
-        return None
-    return f"{linked[0]} is scaled to 0 replicas, so its Service selector matches no pods"
+    if linked:
+        return f"{linked[0]} is scaled to 0 replicas, so its Service selector matches no pods"
+    return audit.get("port_mismatch_text") or None
 
 
 def root_target(audit: dict) -> str | None:
@@ -397,21 +487,37 @@ def deterministic_reply(
     if agent == "incident-commander":
         if findings:
             head = "; ".join(f"{f['title']} ({f['evidence']})" for f in findings[:4])
+            high = [finding for finding in findings if finding["severity"] == "high"]
+            severity_text = (
+                ""
+                if high
+                else " No current high-severity fault found; remaining findings are historical."
+            )
             cause = root_cause(audit)
             cause_text = f" Most likely: {cause}." if cause else ""
             target = root_target(audit)
-            action = (
-                f" First action: scale {target} back to at least one replica "
-                "(or roll back its image), then re-check the Service endpoints; "
-                "the team recommends, it does not apply changes."
-                if target
-                else ""
-            )
+            mismatch = audit.get("port_mismatch")
+            if target:
+                action = (
+                    f" First action: scale {target} back to at least one replica "
+                    "(or roll back its image), then re-check the Service endpoints; "
+                    "the team recommends, it does not apply changes."
+                )
+            elif mismatch:
+                first_port = mismatch["observed"].split(",")[0]
+                action = (
+                    f" First action: patch Service {mismatch['service']} targetPort "
+                    f"from {mismatch['target']} to {first_port} (the port the container "
+                    "listens on); the team recommends, it does not apply changes."
+                )
+            else:
+                action = ""
             return (
                 f"@{sender} I audited {scope}: {audit['nodes']}, {audit['pods']}, "
                 f"{audit['deployments']} deployments. {len(findings)} finding(s): {head}."
-                f"{cause_text}{action} Plan: cluster-investigator owns the service/pod "
-                "evidence, change-analyst checks the rollout history, evidence-verifier "
+                f"{severity_text}{cause_text}{action} "
+                "Plan: cluster-investigator owns the service/pod evidence, "
+                "change-analyst checks the rollout history, evidence-verifier "
                 "re-runs the proof, memory checks prior incidents."
                 + docs_reference(data_dir, audit, agent, body)
             )
@@ -681,6 +787,16 @@ def main() -> int:
                         continue
                     namespace = scoped_namespace(body, namespaces)
                     audit = collect(args.context, namespace, namespaces)
+                    focus = focused_resource(body, audit) if namespace is None else None
+                    if focus is not None:
+                        namespace = str(focus["namespace"])
+                        audit = collect(args.context, namespace, namespaces)
+                        target = f"{namespace}/{focus['name']}"
+                        audit["findings"] = [
+                            finding
+                            for finding in audit["findings"]
+                            if target in finding["evidence"]
+                        ]
                     log(
                         f"audit {args.context}{'/' + namespace if namespace else ''}: "
                         f"{len(audit['findings'])} finding(s) for {','.join(targets)}"
