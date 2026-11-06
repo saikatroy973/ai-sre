@@ -38,70 +38,8 @@ INVESTIGATOR_DATA_DIR="$STAGE/demo" INVESTIGATOR_SWITCH_MODE=off \
   exit 1
 }
 
-python3 - "$STAGE/demo/investigator.sqlite3" "$EVIDENCE" <<'PY'
-"""Stage a read-only evidence snapshot and the probe env for verify.sh.
-
-The snapshot is converted out of WAL journal mode because a read-only SQLite
-connection cannot create the -shm file it needs on an immutable mount. This
-staging script is host-side only and never writes to the source store.
-"""
-import json
-import sys
-from pathlib import Path
-
-import sqlite3
-
-source_path, evidence_dir = Path(sys.argv[1]), Path(sys.argv[2])
-snapshot = evidence_dir / "investigator.sqlite3"
-if not source_path.is_file():
-    sys.exit(f"GATE FAILURE: no evidence store at {source_path}")
-
-source = sqlite3.connect(f"file:{source_path.absolute()}?mode=ro", uri=True)
-target = sqlite3.connect(snapshot)
-source.backup(target)
-# Keep the staged snapshot shared-friendly for mode=ro opens on ro mounts.
-journal = str(target.execute("PRAGMA journal_mode=DELETE").fetchone()[0]).lower()
-if journal != "delete":
-    sys.exit(f"GATE FAILURE: staged snapshot stayed in journal mode {journal}")
-
-row = source.execute(
-    "SELECT id, state, record FROM investigations WHERE state = ? ORDER BY rowid DESC LIMIT 1",
-    ("reported",),
-).fetchone()
-target.close()
-source.close()
-if row is None:
-    sys.exit(
-        "GATE FAILURE: the staging demo produced no reported investigation; "
-        "the evidence probe refuses to guess"
-    )
-snapshot.chmod(0o444)
-
-record = json.loads(row[2])
-scope = record["scope"]
-report = record["report"] or {}
-diagnosis = report.get("diagnosis")
-principal = record.get("principal_id")
-if principal != "local-operator" or not diagnosis:
-    sys.exit(
-        f"GATE FAILURE: staged investigation has principal={principal!r} "
-        f"diagnosis={diagnosis!r}; the probe refuses it"
-    )
-
-env_file = evidence_dir.parent / "probe.env"
-allowed = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ@._:-"
-values = {
-    "INVESTIGATOR_EVIDENCE_PROBE_ID": str(row[0]),
-    "INVESTIGATOR_EVIDENCE_PROBE_DIAGNOSIS": str(diagnosis),
-    "INVESTIGATOR_TENANT": str(scope["tenant"]),
-    "INVESTIGATOR_CLUSTER": str(scope["cluster"]),
-    "INVESTIGATOR_NAMESPACES": str(scope["namespace"]),
-}
-for key, value in values.items():
-    if not value or any(char not in allowed for char in value):
-        sys.exit(f"GATE FAILURE: refusing unsafe staged env value for {key}")
-env_file.write_text("".join(f"{key}={value}\n" for key, value in sorted(values.items())))
-PY
+python3 deploy/mcp-container/stage_evidence.py \
+  "$STAGE/demo/investigator.sqlite3" "$EVIDENCE"
 
 docker build --quiet -f "$DOCKERFILE" -t "$IMAGE" .
 

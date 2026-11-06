@@ -15,7 +15,9 @@ operating-system account. Actor names, signed tokens, and Switch agent identitie
 are protocol/credential identities, not same-uid isolation boundaries; a compromised same-uid agent
 can read the others' credentials and forge that attribution.
 
-**Switch-native plan:** [docs/SWITCH_NATIVE_PLAN.md](docs/SWITCH_NATIVE_PLAN.md). The offline
+**Switch-native plan:** [docs/SWITCH_NATIVE_PLAN.md](docs/SWITCH_NATIVE_PLAN.md). The full
+surface tour (Console, rooms, memory, Trust, ROI, Trust CLI/CodeScan, MCP tools):
+[docs/SWITCH_TOUR.md](docs/SWITCH_TOUR.md). The offline
 `demo` path remains credential-free; Switch-required flows fail closed when Switch is unavailable.
 
 ## Quick start: offline evidence demo
@@ -44,6 +46,11 @@ inventing a root cause. CLI success means a report was produced; inspect `report
 decide whether a diagnosis was supported.
 
 ## Switch Console quick start (mandatory live path)
+
+For a scripted, ~8-minute end-to-end demo (setup, incident, guardrails,
+troubleshooting, fallbacks), see [docs/SHOWCASE.md](docs/SHOWCASE.md). The local
+Mattermost server, the six agent bots, and the room/channel bridge are documented
+in [docs/MATTERMOST.md](docs/MATTERMOST.md).
 
 Live investigations run through **Switch Console** on a Console-managed local server. The six
 agents are Console-managed OpenCode agents; Switch supplies their room tools, and this repository
@@ -74,10 +81,18 @@ kube-investigator switch console incident --scenario selector-mismatch
 # room document is published.
 ```
 
+Setup defaults to per-agent signed tokens and Console `isolation=isolated`. If the installed
+Console/provider cannot honor isolated agents, pass `--isolation shared`; for credential-free
+development pass `--no-actor-tokens`. Both are explicit downgrades that print warnings, and a
+downgrade from per-agent wiring also requires `--allow-shared-directory`.
+
 What the Console path creates:
 
 - Six Console-managed agents: `incident-commander`, `cluster-investigator`,
   `telemetry-analyst`, `change-analyst`, `memory-researcher`, and `evidence-verifier`.
+  Setup gives each one a `.data/console-agents/<role>/opencode.json` with a signed actor token
+  carrying a role-specific `tools` claim; runtimes use Console `isolation=isolated` by default.
+  `switch console status` reports the wiring, tools, and token expiry.
 - The four core rooms: `k8s-incidents`, `k8s-change`, `k8s-memory`, and `k8s-governance`.
 - One incident room named `incident-<id>-<namespace>-<service>`, with the template documents
   `incident-brief`, `evidence-standard`, `report-template`, and `memory-policy`.
@@ -205,33 +220,104 @@ investigation ID, and trace ID; `get`/`verify` record the investigation and evid
 (`token` or `dev`) so a development-mode label is distinguishable from a verified token subject.
 The evidence SQLite store stays read-only, so serving a staged snapshot still produces an audit
 row. A failed audit write fails the tool closed, and the actor is the verified token subject rather
-than a fixed operator label. The hash chain detects edits and mid-chain breaks, but without an
-external anchor it cannot detect tail truncation or whole-file deletion, and a same-uid writer can
-rewrite it: treat it as tamper-evident, not tamper-proof. Inspect or verify the chain with:
+than a fixed operator label. The hash chain detects edits and mid-chain breaks; without an external
+anchor it cannot detect tail truncation or whole-file deletion, and a same-uid writer can rewrite
+it. Set `INVESTIGATOR_AUDIT_ANCHOR_DIR` to a directory outside the writable data volume that the
+server can still write (for example a separate mount or account) to store each log's entry count
+and tail digest; verification then detects truncation and deletion. Anchors are keyed by data
+directory, so several tenants or deployments can share one anchor root without overwriting each
+other's chain position, and the anchor pins the baseline split as well as the tail, so rewriting
+`*.baseline.json` to hide a deleted prefix is detected. The anchor is replaced on every append, so
+an immutable (WORM) path cannot be the live anchor; publish anchors to WORM storage out-of-band
+instead. An anchor writable by the same attacker is still tamper-evident, not tamper-proof, and
+deleting the anchor file resets the guarantee: keep the anchor root out of the data-dir writer's
+reach. `audit --verify` rejects an empty log (the same applies to `switch memory audit --verify`).
+Inspect or verify with:
 
 ```sh
 kube-investigator audit --limit 20
 kube-investigator audit --verify
 ```
 
+Prune old local data and rotated audit archives. The command never removes the current audit file,
+keeps investigations that have not reached a terminal state, and refuses to prune an archive whose
+hash chain is already broken (deleting it would erase the evidence):
+
+```sh
+kube-investigator maintenance prune --investigation-days 90 --audit-days 30 --dry-run
+kube-investigator maintenance prune --investigation-days 90 --audit-days 30 --vacuum
+```
+
 Set `INVESTIGATOR_MCP_ACTOR` to label the caller in development mode. For a signed credential
 check, set `INVESTIGATOR_MCP_PUBLIC_KEY` and pass a signed Ed25519 token in
 `INVESTIGATOR_MCP_ACTOR_TOKEN`; **every tool call except `health`** (run/get/verify/memory/
-source-status) then rejects missing, expired, wrong-tenant, and wrong-actor tokens:
+source-status) then rejects missing, expired, wrong-tenant, and wrong-actor tokens. A configured actor
+token without a public key is rejected instead of silently falling back to development mode:
 
 ```sh
 python scripts/mcp_actor_token.py keygen --out-dir .data/mcp-auth
 python scripts/mcp_actor_token.py sign \
   --private-key .data/mcp-auth/mcp-actor-private.pem \
-  --actor memory-researcher --tenant local --ttl 3600
+  --actor memory-researcher --tenant local --ttl 3600 --tools memory
 ```
+
+Console-generated tokens carry a signed `tools` claim (for example, the memory researcher gets
+only `memory`; the evidence verifier gets `get` and `verify`), and the MCP server rejects an
+authenticated actor that calls a tool outside that claim. A legacy token without the claim falls
+back to the built-in role map for known actors and the optional server-side
+`INVESTIGATOR_MCP_TOOLS` allowlist (comma-separated short or full tool names); an unknown/custom
+actor keeps full-tool behavior unless the allowlist is set. When that allowlist is configured it
+also caps a token's `tools` claim, so the effective grant is the intersection. `health` stays open as
+a liveness probe but exposes only `ok`, version, and read-only status unless authentication is
+configured and passes (in unauthenticated development mode it also reports the configured scope).
+
+**Kubernetes documentation for the cluster investigator.** The
+`kube_investigator_docs` tool searches the upstream English Kubernetes
+documentation (the `content/en/docs` tree from `kubernetes/website`, CC BY 4.0)
+indexed locally into SQLite FTS5. Like every other tool it requires the actor
+token, is actor-audited, and is limited to the `docs` claim — only
+`cluster-investigator` receives it. The index lives outside the repository:
+
+```sh
+git clone --depth 1 --filter=blob:none --sparse \
+  https://github.com/kubernetes/website .data/k8s-docs/src
+git -C .data/k8s-docs/src sparse-checkout set content/en/docs
+python scripts/index_kubernetes_docs.py    # 1,722 documents -> ~21k passages
+```
+
+`kube_investigator_docs(query, limit=5)` returns cited passages with
+`https://kubernetes.io/docs/...` URLs; an unbuilt index is reported, never
+faked. Set `INVESTIGATOR_DOCS_INDEX` to point at a different index. The
+cluster-investigator instructions tell it to search by failure signature (for
+example “service has no endpoints”) and cite the URL in the evidence summary.
+
+**Token expiry and rotation.** Tokens expire after 14 days by default. `switch console status`
+reports each agent's wiring, signed tool claim, and `expires_at`/`expires_in_seconds`; within seven
+days it prints remaining hours rather than days, and it reports `EXPIRED`, `INVALID`,
+actor/tenant-`MISMATCH`, and overly permissive (`INSECURE`) configs instead of treating them as
+healthy wiring. It reads the local agent directories, so run it on the machine that hosts the
+Console agents. It is a passive report, so rotate on a schedule (for example weekly or at least
+seven days before expiry):
+
+```sh
+kube-investigator switch console status --json
+kube-investigator switch console setup --directory . --actor-tokens --rotate-key
+# Restart each agent runtime (a Console kickoff does this) so it loads the new token/public key.
+```
+
+`--rotate-key` changes the shared signing key, so old tokens fail once the MCP child restarts; older
+running MCP children keep the old public key until that restart. Re-running setup without
+`--rotate-key` re-signs tokens with the existing key.
 
 The private key stays with the operator; the MCP server only receives the public key. This is a
 credential check, not a replacement for OS/process isolation. **Same-uid limit:** in the local
 Console profile all six agents run as the same operating-system user, and the mode-0600 configs plus
 the shared signing key under `.data/mcp-auth` are readable by that whole account. A compromised
 agent can therefore read another agent's token or mint one for any actor and forge the audit
-attribution. File modes protect against other users, not against a same-uid compromise. A signing
+attribution. Tokens are also passed to the MCP child as environment variables, so any same-uid
+process can read them with `ps -ax -Eww`. That account can also open the evidence SQLite file
+directly (the append-only triggers only guard the application connection) and rewrite or delete
+audit JSONL files. File modes, triggers, and hash chains do not stop a same-uid attacker. A signing
 service with an independent approval/identity check, or a separate uid/container per agent, is
 required before these tokens are an isolation boundary. The local Console profile does neither. The
 hardened MCP container profile isolates the server process; Console still launches the MCP server
@@ -707,23 +793,26 @@ audit (2–11) and remaining production gates.
 
 Hardening you should wire before showing the agent to anyone else:
 
-- **Per-agent actor tokens.** `kube-investigator switch console setup --directory . \
-  --actor-tokens` gives every Console agent its own directory and an Ed25519-signed
-  `INVESTIGATOR_MCP_ACTOR_TOKEN` (14-day TTL by default); every evidence tool except `health`
-  then authenticates against the signed credential and fails closed on missing, foreign, or
-  expired tokens (`scripts/mcp_token_probe.py` proves `ok`/`missing`/`foreign` over a real
-  stdio spawn). Every authenticated call is actor-attributed in a hash-chained audit:
-  memory searches in `memory-audit*.jsonl`, and `run`/`get`/`verify`/`source_status` in
-  `tool-audit*.jsonl`. Audit rows go to the writable data directory, never the read-only
-  evidence store; `kube-investigator audit --verify` checks the tool chain. These are
-  per-agent credentials, **not a same-uid security boundary**: all six agents run as the
-  operator account and can read each other's configs and the shared signing key, so a
-  compromised agent can mint or replay another actor's token and forge those audit rows. Use a
-  signing service with independent approval/identity checks, or a separate uid/container per
-  agent, before treating actor names as identity isolation. A setup rerun re-signs tokens;
-  `--rotate-key` replaces the shared signing keypair, so restarted runtimes reject previously
-  issued tokens. `setup --refresh` without `--actor-tokens` refuses to downgrade wired agents
-  unless `--allow-shared-directory` is passed on purpose.
+- **Per-agent actor tokens.** `kube-investigator switch console setup --directory .` now enables
+  per-agent tokens and isolated Console agents by default; `--no-actor-tokens` and
+  `--isolation shared` are explicit downgrades. Each agent gets its own directory and an
+  Ed25519-signed `INVESTIGATOR_MCP_ACTOR_TOKEN` (14-day TTL) with a role-specific `tools` claim;
+  every evidence tool except `health` authenticates and enforces that claim, failing closed on
+  missing, foreign, expired, or unauthorized calls (`scripts/mcp_token_probe.py` proves
+  `ok`/`missing`/`foreign` over a real stdio spawn). Every authenticated call is actor-attributed
+  in a hash-chained audit: memory searches in `memory-audit*.jsonl`, and
+  `run`/`get`/`verify`/`source_status` in `tool-audit*.jsonl`. Audit rows go to the writable data
+  directory, never the read-only evidence store; `kube-investigator audit --verify` checks the tool
+  chain, and `INVESTIGATOR_AUDIT_ANCHOR_DIR` adds an external truncation/deletion anchor. These are
+  per-agent credentials, **not a same-uid security boundary**: all six agents run as the operator
+  account and can read each other's configs, the shared signing key, and token-bearing MCP child
+  environments (`ps -ax -Eww`); that account can also open the evidence DB directly and rewrite
+  audit files. Use a signing service with independent approval/identity checks, or a separate
+  uid/container per agent, before treating actor names as identity isolation. `switch console
+  status` shows wiring, tool claims, and token expiry; a setup rerun re-signs tokens, and
+  `--rotate-key` replaces the shared signing keypair so restarted runtimes reject previously issued
+  tokens. `setup --refresh --no-actor-tokens` refuses to downgrade wired agents unless
+  `--allow-shared-directory` is passed on purpose.
 - **Read-only evidence store.** The MCP `get`/`verify` tools open the SQLite evidence store in
   URI read-only mode: they cannot create, migrate, or write it, and a missing store is a clean
   refusal. `INVESTIGATOR_EVIDENCE_STORE_DIR` points them at a staged snapshot in isolation.
@@ -732,3 +821,5 @@ Hardening you should wire before showing the agent to anyone else:
   0444 read-only snapshot, and gates five probes (`uid-isolation`, `filesystem-isolation`,
   `network-isolation`, `mcp-stdio-handshake`, `evidence-store`); details and limits:
   `docs/OS_ISOLATION.md`. The same gate runs as the `isolation` CI job on every push.
+- **Pinned supply chain.** GitHub Actions are pinned to commit SHAs, the MCP base image is
+  pinned by digest, and `.github/dependabot.yml` covers Actions, pip, and Docker updates.

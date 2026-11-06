@@ -87,7 +87,7 @@ Implemented and verified live through **Switch Console**, the mandatory live age
   live Console runtime.
 
 Offline validation: `ruff check .`, `ruff format --check .`, and the full pytest suite pass
-(286 tests). The Switch protocol and Console API tests use an in-memory fake and
+(338 tests). The Switch protocol and Console API tests use an in-memory fake and
 `httpx.MockTransport`; the repository's test configuration forbids real sockets.
 
 Verified live for the optional self-hosted collaboration profile:
@@ -183,12 +183,12 @@ Not yet verified or not implemented:
 | 3. Live traffic / OTel | Pass | 6 LangChain/OpenAI interactions with prompts, tokens, latency, and reported cost; full `/agent/otel/v1/traces` URL required; new model unpriced |
 | 4. ROI | Partial | Nonzero `$0.0001339` MTD cost and 2 ROI agents; no optimization recommendation from 6 interactions |
 | 5. Guardrails | Partial | SDK outcomes `blocked=2, redacted=1, errored=2`; no successful redacted provider response because keys have no credits |
-| 6. CI gates | Pass (current) | Provider preflight fails closed on `429`; OpenCode Go AI CodeScan run `41893473483` completed and the gate passed; the PR-triggered official action still needs credits; historical 2 Critical findings were reviewed and retained |
+| 6. CI gates | Pass (current) | Provider preflight fails closed on `429`; OpenCode Go AI CodeScan run `41893473483` completed and the gate passed; the PR-triggered official action still needs credits; historical 2 Critical findings were reviewed and retained. GitHub Actions are pinned to commit SHAs, the MCP base image is digest-pinned, and Dependabot covers Actions, pip, and Docker |
 | 7. Deployment unification | Pass | Console is the mandatory live runtime; the self-hosted protocol stack is an optional test harness |
 | 8. Collaboration bridges | Pass | Console Mattermost bridge; channel contains 10 mirrored investigation messages |
 | 9. Live Kubernetes / Scale | Partial | Live `kind-imesh` read abstained as designed; Scale Agentex/SGP has no credentials and is not deployed |
 | 10. Reliability | Partial | Leases, recovery, stale-worker guard, 2-worker and 30-job/4-worker tests. The live drill was run and passed all parts on 2026-11-05: 10-room queue protocol with proven SIGKILL lease recovery (attempts=2) plus a verify-protocol re-gate on the same data dir; switch restart preserved every pre-read room history byte-for-byte; a SIGKILLed Console runtime is re-instantiated at the next kickoff (Console does not respawn proactively; agents 6→6, rooms 64→65); concurrent incident rooms carry the incident kit package and link only to the three core rooms (registry 78). The drill needs the local live stacks and is not re-run automatically; only the isolation gate is in CI |
-| 11. Security / autonomy | Partial | Read-only MCP tool allowlist, live guardrails, hash-chained audit; per-agent signed actor tokens wired to all six Console agents (files 0600, keypair 0600/0700) and a per-agent stdio probe covering `ok`/`missing`/`foreign`; MCP credential check now covers every tool except `health`; every authenticated `run`/`get`/`verify`/`source_status` call writes the signed actor to a hash-chained `tool-audit*.jsonl` in the writable data directory while the evidence store stays read-only; and a hardened MCP container gate (5 probes, incl. serving a staged real investigation from a 0444 read-only bind) ships with an `isolation` CI job. Remaining: no remediation execution, no Console-native approval click, Console agents still launch the MCP server outside the container profile, and actor tokens are not a same-uid boundary (all agents run as the operator account and can read each other's configs plus the shared signing key; a signing service or per-agent uid/container is required) |
+| 11. Security / autonomy | Partial | Read-only MCP tool allowlist, live guardrails, hash-chained audit; per-agent signed actor tokens wired to all six Console agents (files 0600, keypair 0600/0700) and a per-agent stdio probe covering `ok`/`missing`/`foreign`; MCP credential check covers every tool except `health`, generated tokens carry role-specific `tools` claims, and each tool enforces least privilege; `health` returns only liveness data without a valid token; every authenticated `run`/`get`/`verify`/`source_status` call writes the signed actor to a hash-chained `tool-audit*.jsonl` in the writable data directory, with an optional external anchor and empty-log rejection; Console setup now defaults to per-agent credentials and `isolation=isolated`, reports wiring/expiry (including `EXPIRED`/`INVALID` tokens) in `status`, and documents a manual `--rotate-key` rotation runbook; a retention command prunes old records and rotated audit files; and a hardened MCP container gate (5 probes, incl. a SHA-256-anchored staged investigation) ships with an `isolation` CI job. Remaining: no remediation execution, no Console-native approval click, Console agents still launch the MCP server outside the container profile, and actor tokens are not a same-uid boundary (all agents run as the operator account; they can read configs, the shared signing key, and token-bearing child environments via `ps -ax -Eww`, open the evidence DB directly, and rewrite/delete audit files; a signing service or per-agent uid/container is required) |
 | Memory tool contract | Pass | Tenant isolation, stable snapshot cursor, hash-chained rotating audit, Console memory-room publication, signed actor credentials (same-uid caveat under gap 11), semantic index, two-server isolation test |
 
 
@@ -556,16 +556,31 @@ stdio MCP client, not only by calling the Python function:
   request metadata. The log lives in the writable data directory, so the evidence SQLite store
   stays read-only; `kube-investigator audit --verify` checks the tool chain. A failed audit write
   fails the call closed. Each row records `auth_mode` (`token`/`dev`). The chain detects edits and
-  mid-chain breaks, but without an external anchor it cannot detect tail truncation or whole-file
-  deletion, and a same-uid writer can rewrite it — tamper-evident, not tamper-proof.
+  mid-chain breaks; `INVESTIGATOR_AUDIT_ANCHOR_DIR` records an external entry count and tail
+  digest so verification also detects tail truncation, whole-file deletion, or a rewritten
+  baseline; an empty log is rejected (for `tool-audit` and `memory-audit` alike). Anchors are keyed
+  by data directory so one anchor root can serve several tenants, and retention verifies an archive
+  chain before removing it and only prunes terminal investigations. The anchor is replaced on every
+  append, so
+  it must be a writable directory outside the data volume (a separate account/mount), not
+  immutable/WORM storage; publish anchors to WORM out-of-band if that is required. An anchor
+  writable by the same attacker is tamper-evident, not tamper-proof.
+- Console-generated tokens carry a signed `tools` claim and the MCP server enforces it per tool;
+  legacy tokens fall back to the built-in role map for known actors, then the optional server-side
+  `INVESTIGATOR_MCP_TOOLS` allowlist, which also intersects a signed `tools` claim when set. Default
+  token TTL is 14 days (setup caps `--token-ttl` at 56 days); `switch console status` reports
+  wiring, tool claim, and expiry (including `EXPIRED`/`INVALID`/`MISMATCH` tokens) from the local
+  agent directories, and the rotation runbook is
+  `setup --actor-tokens --rotate-key` followed by an agent-runtime restart.
 - Set `INVESTIGATOR_MCP_ACTOR` as the audit label. For a credential check, configure
   `INVESTIGATOR_MCP_PUBLIC_KEY` and a signed Ed25519 token in `INVESTIGATOR_MCP_ACTOR_TOKEN`;
-  missing, expired, wrong-tenant, and wrong-actor tokens are rejected. The private key stays with
-  the operator. This does not replace OS/process isolation. In the local Console profile all
-  agents run as the same OS user and can read each other's mode-0600 configs plus the shared
-  signing key, so a compromised agent can mint or replay another actor's token and forge the audit
-  attribution. A signing service with independent approval/identity checks, or a separate
-  uid/container per agent, is required before these actor names are a security boundary.
+  missing, expired, wrong-tenant, wrong-actor, and unauthorized-tool tokens are rejected. The
+  private key stays with the operator. This does not replace OS/process isolation. In the local
+  Console profile all agents run as the same OS user and can read each other's mode-0600 configs,
+  the shared signing key, and token-bearing MCP child environments (`ps -ax -Eww`); that account
+  can also open the evidence DB directly and rewrite/delete audit files. A signing service with
+  independent approval/identity checks, or a separate uid/container per agent, is required before
+  these actor names are a security boundary.
 - Approved records can be published directly to the Console `k8s-memory` room with
   `switch memory approve --console` or backfilled with `switch memory publish --id <id> --console`.
   The live record `e984ecff-…` is attached as Console document `ec18bbac-…`.
@@ -575,7 +590,7 @@ stdio MCP client, not only by calling the Python function:
 - The two-server protocol test starts separate MCP processes with separate tenant/data directories
   and verifies that each sees only its own record and that a foreign tenant is rejected.
 
-The direct protocol test is in `tests/test_mcp_server.py`; the full suite is 286 tests.
+The direct protocol test is in `tests/test_mcp_server.py`; the full suite is 338 tests.
 
 ---
 
@@ -917,11 +932,17 @@ Switch Trust guardrail events supplement it; they do not replace it.
   respawn; Console re-instantiates on demand, proven via an incident kickoff).
 - [x] Isolate the MCP server at the OS layer (`deploy/mcp-container/verify.sh`: non-root,
   read-only, cap-drop ALL, network none; probes fail closed; see `docs/OS_ISOLATION.md`).
-- [x] Per-agent Console MCP actor tokens (`switch console setup --actor-tokens`): one
-  directory + signed Ed25519 credential per agent; `ok`/`missing`/`foreign` stdio probes.
-  This is credential hygiene, not a same-uid identity boundary: agents share one OS account
-  and can read each other's configs plus the shared signing key. A signing service or
-  per-agent uid/container remains required.
+- [x] Per-agent Console MCP actor tokens (default in `switch console setup`): one directory +
+  signed Ed25519 credential per agent with a role-specific `tools` claim; `ok`/`missing`/
+  `foreign` stdio probes; `switch console status` reports wiring and expiry; rotation runbook
+  and `--rotate-key`. Console agent isolation defaults to `isolated`; shared is explicit.
+  This is credential hygiene, not a same-uid identity boundary: agents share one OS account and
+  can read each other's configs, the shared signing key, and token-bearing child environments,
+  and can open the evidence DB or audit files directly. A signing service or per-agent
+  uid/container remains required.
+- [x] Add writable external audit anchoring (`INVESTIGATOR_AUDIT_ANCHOR_DIR`), empty-log
+  rejection, and `maintenance prune` retention for terminal investigations, finished queue rows,
+  and rotated audit files (it verifies an archive chain before removing it).
 - [ ] Add ROI improvements review.
 - [ ] Add model profile experiments.
 - [ ] Add dashboard and runbook.
@@ -1008,8 +1029,8 @@ Switch Trust guardrail events supplement it; they do not replace it.
 | No write/exec/secret tools | Pass | MCP tool allowlist (every tool except `health` also requires a signed actor token), read-only evidence stores, **and** OS sandbox: `deploy/mcp-container/verify.sh` gate (read-only root, cap-drop ALL, network none, non-root uid, pids/memory caps, 5 probes incl. staged evidence) returned `ISOLATION-OK`; `docs/OS_ISOLATION.md` |
 | Multi-worker queue claims | Pass (single host) | Lease recovery, stale-worker guard, 2-worker and 30-job/4-worker no-double-claim tests; worker labels + configurable lease seconds |
 | 10 concurrent incidents / crash restart | Pass (drill) | `scripts/reliability_drill.py` protocol part: 10 identical-risk jobs → 10 unique rooms, all complete exactly once; SIGKILL of the labeled worker holding a running row; replacement worker recovered the expired lease (attempts=2) and completed the job; 6 transient Switch 4xx retried to completion; per-room trace-canary isolation (own trace present, no foreign trace). switch-restart part now compares **every** pre-read core-room history over a 100-event window with a saturation guard (2026-11-05 re-run: 4/4 full histories, 5–14 events each, preserved byte-for-byte across the docker API restart). console-agent part: honest no-proactive-respawn finding, kickoff re-instantiates the runtime (agents 6→6, rooms 64→65). console-rooms part: 10 concurrent Console rooms (registry 75), then a 3-room re-run that verified every created room carries the `k8s-incident-kit` package and links only to the three core rooms (registry 78). `verify-protocol` re-gate on the 2026-11-05 drill dir: 10/10 at ≥38 events/room |
-| Per-agent MCP auth | Pass (credential only; not same-uid isolation) | `switch console setup --actor-tokens`: six Console agents patched to per-agent directories with signed Ed25519 tokens (14-day TTL, 0600 configs, keypair 0700/0600 under `.data/mcp-auth`); stdio probes: valid accepted (`ok`), token dropped fails closed (`required`), foreign actor rejected (`does not match the signed token`); the credential check now covers **every tool except `health`**. Memory searches write the signed actor into the hash-chained memory audit; `run`/`get`/`verify`/`source_status` write the signed actor into a separate hash-chained `tool-audit*.jsonl` in the writable data directory, leaving the evidence store read-only and failing closed if the audit write fails. **Limit:** all six agents run as the operator uid and can read each other's configs and the shared signing key, so a compromised agent can mint or replay another actor's token and forge attribution; a signing service with independent approval/identity checks or per-agent uid/container is required. Rotation proven live on 2026-11-05: re-running setup re-signed all six tokens (commander `7d9dcc99…` → `e8eb3ab7…`), a SIGKILLed commander runtime was re-instantiated by a kickoff within 5s, and its MCP child's environment carried exactly the rotated token. `--rotate-key` additionally replaces the shared keypair (unit-tested; existing runtimes must restart to reject pre-rotation tokens), and `--allow-shared-directory` is required before a setup rerun may downgrade wired agents to the shared unauthenticated config. Re-running setup initially failed closed on the existing agents directory; the idempotency bug is fixed with a regression test. CI: 286 tests skip-safe |
-| OS isolation prototype | Pass (prototype) | `deploy/mcp-container/`: `ISOLATION-OK` with five probes (`uid-isolation`, `filesystem-isolation`, `network-isolation`, `mcp-stdio-handshake`, `evidence-store`); the evidence probe reads a real completed investigation from a staged 0444 read-only SQLite snapshot, re-verifies it, and rejects a write to the mount. MCP `get`/`verify` open the evidence store in URI read-only mode, so a missing or unwritable store fails closed instead of being created. The gate is now an `isolation` CI job; `docs/OS_ISOLATION.md` records limits (Console migration pending; `--network none` fails live collection closed by design) |
+| Per-agent MCP auth | Pass (credential only; not same-uid isolation) | `switch console setup` now defaults to per-agent tokens and `isolation=isolated`; six Console agents get per-agent directories with signed Ed25519 tokens (14-day TTL, 0600 configs, keypair 0700/0600 under `.data/mcp-auth`) and role-specific `tools` claims enforced by the MCP server. Stdio probes: valid accepted (`ok`), token dropped fails closed (`required`), foreign actor rejected (`does not match the signed token`); `health` is open but returns only liveness data without a valid token when authentication is configured (development mode reports the configured scope). Memory searches write the signed actor into the hash-chained memory audit; `run`/`get`/`verify`/`source_status` write a separate hash-chained `tool-audit*.jsonl` in the writable data directory, leaving the evidence store read-only and failing closed if the audit write fails. `switch console status` reports wiring, tool claim, expiry, and `EXPIRED`/`INVALID`/`MISMATCH`/`INSECURE` states; `--rotate-key` replaces the shared keypair, and `--allow-shared-directory` is required to downgrade wired agents. **Limit:** all six agents run as the operator uid and can read each other's configs, the shared signing key, and token-bearing MCP child environments (`ps -ax -Eww`); that account can open the evidence DB directly and rewrite/delete audit files, so a signing service with independent approval/identity checks or per-agent uid/container is required. Rotation proven live on 2026-11-05: re-running setup re-signed all six tokens (commander `7d9dcc99…` → `e8eb3ab7…`), a SIGKILLed commander runtime was re-instantiated by a kickoff within 5s, and its MCP child's environment carried exactly the rotated token. The idempotency bug on an existing agents directory is fixed with a regression test. CI: 338 tests skip-safe |
+| OS isolation prototype | Pass (prototype) | `deploy/mcp-container/`: `ISOLATION-OK` with five probes (`uid-isolation`, `filesystem-isolation`, `network-isolation`, `mcp-stdio-handshake`, `evidence-store`); staging records the snapshot SHA-256 in `probe.env` and the in-container probe rejects a digest mismatch before reading a real completed investigation from a staged 0444 read-only SQLite snapshot, re-verifies it, and rejects a write to the mount. MCP `get`/`verify` open the evidence store in URI read-only mode, so a missing or unwritable store fails closed instead of being created. The gate is now an `isolation` CI job; `docs/OS_ISOLATION.md` records limits (Console migration pending; `--network none` fails live collection closed by design) |
 | Optional semantic memory index | Pass | `model2vec`; live `routing failure` matched the checkout record; unrelated queries returned none |
 | Distributed queue / Scale hosting | Not implemented | Documented external gaps |
 

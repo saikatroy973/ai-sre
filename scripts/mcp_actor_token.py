@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Generate Ed25519 keys and signed MCP actor tokens.
 
-These tokens authenticate an MCP caller. They are not a same-uid isolation
-boundary: agents running as one OS user can read each other's token configs and
-the signing key, so a compromised agent can mint or replay another actor's
-token. Use a signing service with independent approval/identity checks, or a
-separate uid/container per agent, before treating actor names as identity.
+These tokens authenticate an MCP caller and may carry a least-privilege
+``tools`` claim. They are not a same-uid isolation boundary: agents running as
+one OS user can read each other's token configs, token-bearing child
+environments, and the signing key, so a compromised agent can mint or replay
+another actor's token. Use a signing service with independent approval/identity
+checks, or a separate uid/container per agent, before treating actor names as
+identity.
 """
 
 from __future__ import annotations
@@ -28,9 +30,9 @@ def keygen(out_dir: Path) -> int:
     return 0
 
 
-def sign(private_path: Path, actor: str, tenant: str, ttl: int) -> int:
+def sign(private_path: Path, actor: str, tenant: str, ttl: int, tools: list[str] | None) -> int:
     try:
-        token = sign_actor_token(private_path, actor, tenant, ttl)
+        token = sign_actor_token(private_path, actor, tenant, ttl, tools=tools)
     except (ValueError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -48,11 +50,24 @@ def main() -> int:
     sign_parser.add_argument("--actor", required=True)
     sign_parser.add_argument("--tenant", required=True)
     sign_parser.add_argument("--ttl", type=int, default=3600)
+    sign_parser.add_argument(
+        "--tools",
+        default=None,
+        help=(
+            "comma-separated least-privilege tool claim "
+            "(run,get,verify,memory,source_status); an empty string denies every tool"
+        ),
+    )
     args = parser.parse_args()
     if args.command == "keygen":
         return keygen(args.out_dir)
     if args.command == "sign":
-        return sign(args.private_key, args.actor, args.tenant, args.ttl)
+        tools = (
+            None
+            if args.tools is None
+            else [item.strip() for item in args.tools.split(",") if item.strip()]
+        )
+        return sign(args.private_key, args.actor, args.tenant, args.ttl, tools)
     raise AssertionError("unreachable")
 
 

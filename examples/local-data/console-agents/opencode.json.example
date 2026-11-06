@@ -1,0 +1,27 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "kube-investigator": {
+      "command": ["<REPO>/.venv/bin/python", "-m", "kube_investigator.mcp_server"],
+      "enabled": true,
+      "environment": {
+        "INVESTIGATOR_DATA_DIR": "<REPO>/.data",
+        "INVESTIGATOR_MCP_ACTOR": "<agent-name>",
+        "INVESTIGATOR_MCP_ACTOR_TOKEN": "<ACTOR_TOKEN>",
+        "INVESTIGATOR_MCP_PUBLIC_KEY": "<PUBLIC_KEY>",
+        "INVESTIGATOR_TENANT": "local"
+      },
+      "type": "local"
+    }
+  },
+  "permission": {
+    "kube-investigator_": "allow",
+    "kube-investigator_kube_investigator_health": "allow",
+    "kube-investigator_kube_investigator_run": "allow",
+    "kube-investigator_kube_investigator_get": "allow",
+    "kube-investigator_kube_investigator_verify": "allow",
+    "kube-investigator_kube_investigator_memory": "allow",
+    "kube-investigator_kube_investigator_source_status": "allow",
+    "kube-investigator_kube_investigator_docs": "allow"
+  }
+}

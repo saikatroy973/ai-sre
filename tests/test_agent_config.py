@@ -8,7 +8,12 @@ from pathlib import Path
 import pytest
 
 from kube_investigator.config import Settings
-from kube_investigator.mcp_auth import authorize_actor, generate_actor_keypair, sign_actor_token
+from kube_investigator.mcp_auth import (
+    authorize_actor,
+    authorize_tool,
+    generate_actor_keypair,
+    sign_actor_token,
+)
 from kube_investigator.switch.agent_config import (
     DEFAULT_TOKEN_TTL_SECONDS,
     agent_directory,
@@ -75,6 +80,7 @@ def test_tokens_are_signed_by_one_operator_key_and_verifiable(wired):
         )
         assert payload["actor"] == name
         assert payload["tenant"] == environment["INVESTIGATOR_TENANT"]
+        assert payload["tools"], f"{name} token has no tool claim"
 
 
 def test_tokens_expire_and_setup_rewrites_them(wired, tmp_path, monkeypatch):
@@ -249,3 +255,36 @@ def test_existing_key_material_permissions_are_tightened(wired):
     )
     assert stat.S_IMODE(auth_dir.stat().st_mode) == 0o700
     assert stat.S_IMODE(key_path.stat().st_mode) == 0o600
+
+
+def test_tokens_carry_role_specific_tool_claims(wired):
+    from kube_investigator.mcp_auth import verify_actor_token
+
+    _data_dir, _auth_dir, directories = wired
+    expected = {
+        "incident-commander": {"run", "get", "verify", "memory", "source_status"},
+        "cluster-investigator": {"docs", "get", "verify", "source_status"},
+        "telemetry-analyst": {"get", "source_status"},
+        "change-analyst": {"get", "source_status"},
+        "memory-researcher": {"memory"},
+        "evidence-verifier": {"get", "verify"},
+    }
+    for name, directory in directories.items():
+        environment = load_config_environment(directory / "opencode.json")
+        payload = verify_actor_token(
+            environment["INVESTIGATOR_MCP_ACTOR_TOKEN"],
+            environment["INVESTIGATOR_MCP_PUBLIC_KEY"],
+        )
+        assert set(payload["tools"]) == expected[name]
+
+
+def test_generated_memory_token_cannot_call_evidence_tools(wired, monkeypatch):
+    _data_dir, _auth_dir, directories = wired
+    environment = load_config_environment(directories["memory-researcher"] / "opencode.json")
+    settings = Settings(data_dir=directories["memory-researcher"], tenant="local")
+    for key, value in environment.items():
+        monkeypatch.setenv(key, value)
+    assert authorize_tool(settings, "memory")[0] == "memory-researcher"
+    actor, error = authorize_tool(settings, "run")
+    assert actor == "memory-researcher"
+    assert error == "MCP actor is not authorized for this tool"

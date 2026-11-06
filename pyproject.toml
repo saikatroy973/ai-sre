@@ -31,6 +31,10 @@ trust-eval = [
   "openai-agents>=0.4,<1",
   "openai>=1.60,<3",
 ]
+video = [
+  "imageio-ffmpeg>=0.5,<1",
+  "pillow>=10,<14",
+]
 
 [project.scripts]
 kube-investigator = "kube_investigator.cli:main"

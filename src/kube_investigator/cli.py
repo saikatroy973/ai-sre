@@ -5,11 +5,14 @@ import json
 import os
 import secrets
 import shutil
+import sqlite3
+import stat
 import subprocess
 import sys
 from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
+from typing import Any
 from uuid import UUID, uuid4
 
 from pydantic import ValidationError
@@ -97,6 +100,18 @@ def parser() -> argparse.ArgumentParser:
     audit.add_argument("--data-dir", type=Path)
     audit.add_argument("--json", action="store_true")
 
+    maintenance = commands.add_parser("maintenance", help="Prune local investigation data")
+    maintenance_commands = maintenance.add_subparsers(dest="maintenance_command", required=True)
+    prune = maintenance_commands.add_parser(
+        "prune", help="Delete old investigations, queue rows, and rotated audit files"
+    )
+    prune.add_argument("--data-dir", type=Path)
+    prune.add_argument("--investigation-days", type=int, default=90)
+    prune.add_argument("--audit-days", type=int, default=30)
+    prune.add_argument("--dry-run", action="store_true")
+    prune.add_argument("--vacuum", action="store_true")
+    prune.add_argument("--json", action="store_true")
+
     switch_demo = commands.add_parser(
         "switch-demo",
         help="Run a fixture investigation in a real Switch room",
@@ -153,10 +168,20 @@ def parser() -> argparse.ArgumentParser:
     console_setup.add_argument("--controller-id")
     console_setup.add_argument(
         "--actor-tokens",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=True,
         help=(
-            "Give each agent its own directory and signed MCP actor token "
-            "(credential only; not same-uid isolation)"
+            "Sign a per-agent MCP token (default). Use --no-actor-tokens for the "
+            "shared, unauthenticated MCP config; actor tokens are credential-only, "
+            "not same-uid isolation"
+        ),
+    )
+    console_setup.add_argument(
+        "--isolation",
+        choices=("isolated", "shared"),
+        default="isolated",
+        help=(
+            "Console agent filesystem isolation (default: isolated). shared is not an OS boundary"
         ),
     )
     console_setup.add_argument(
@@ -339,21 +364,51 @@ def main(argv: list[str] | None = None) -> int:
             return _queue_command(args)
         if args.command == "switch":
             return _switch_command(args)
+        if args.command == "maintenance":
+            from kube_investigator.retention import prune
+
+            data_dir = args.data_dir or Path(os.getenv("INVESTIGATOR_DATA_DIR", ".data"))
+            try:
+                report = prune(
+                    data_dir,
+                    investigation_days=args.investigation_days,
+                    audit_days=args.audit_days,
+                    dry_run=args.dry_run,
+                    vacuum=args.vacuum,
+                )
+            except ValueError as exc:
+                print(f"error: {exc}", file=sys.stderr)
+                return 2
+            except (OSError, sqlite3.Error) as exc:
+                print(f"error: retention failed: {exc}", file=sys.stderr)
+                return 1
+            if args.json:
+                print(json.dumps(report, indent=2, sort_keys=True))
+            else:
+                action = "Would remove" if report["dry_run"] else "Removed"
+                print(
+                    f"{action} {len(report['investigations'])} investigations and "
+                    f"{len(report['queue_jobs'])} finished queue jobs."
+                )
+                for prefix, files in sorted(report["audit_files"].items()):
+                    print(f"{action} {len(files)} {prefix} archives.")
+                if report["vacuumed"]:
+                    print("Vacuumed the SQLite store.")
+                for error in report.get("errors", []):
+                    print(f"Error: {error}", file=sys.stderr)
+            return 1 if report.get("errors") else 0
         if args.command == "audit":
             data_dir = args.data_dir or Path(os.getenv("INVESTIGATOR_DATA_DIR", ".data"))
             if args.verify:
                 ok, errors = verify_audit(data_dir, "tool-audit")
-                present = bool(read_audit(data_dir, "tool-audit", 1))
                 if args.json:
                     print(
                         json.dumps(
-                            {"ok": ok, "errors": errors, "entries_present": present},
+                            {"ok": ok, "errors": errors},
                             indent=2,
                             sort_keys=True,
                         )
                     )
-                elif not present:
-                    print("No tool audit entries found; nothing to verify.")
                 else:
                     print("Tool audit chain is valid." if ok else "Tool audit chain is invalid.")
                     for error in errors:
@@ -736,15 +791,77 @@ def _switch_console(args: argparse.Namespace) -> int:
     raise AssertionError("unreachable")
 
 
+def _agent_auth_status(item: dict[str, Any]) -> dict[str, Any]:
+    """Read one agent's local MCP config and report wiring, tools, and expiry."""
+    from kube_investigator.mcp_auth import inspect_actor_token
+    from kube_investigator.switch.agent_config import load_config_environment
+
+    definition = item.get("definition")
+    if not isinstance(definition, dict):
+        definition = {}
+    directory = definition.get("directory")
+    status: dict[str, Any] = {
+        "directory": directory,
+        "wiring": "unreported",
+        "expires_at": None,
+        "expires_in_seconds": None,
+        "tools": None,
+    }
+    if not isinstance(directory, str) or not directory:
+        return status
+    config_path = Path(directory).expanduser() / "opencode.json"
+    if not config_path.is_file():
+        status["wiring"] = "shared/unauthenticated"
+        return status
+    try:
+        mode = stat.S_IMODE(config_path.stat().st_mode)
+        status["mode"] = f"{mode:o}"
+        environment = load_config_environment(config_path)
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        status["wiring"] = "invalid-config"
+        status["error"] = type(exc).__name__
+        return status
+    token = environment.get("INVESTIGATOR_MCP_ACTOR_TOKEN")
+    public_key = environment.get("INVESTIGATOR_MCP_PUBLIC_KEY")
+    if not token or not public_key:
+        status["wiring"] = "shared/unauthenticated"
+        return status
+    status.update(inspect_actor_token(token, public_key))
+    status["config"] = str(config_path)
+    if status.get("valid") is not True:
+        if status.get("expired") is True:
+            status["wiring"] = "expired-token"
+        else:
+            status["wiring"] = "invalid-token"
+            status.setdefault("error", "token is invalid")
+        return status
+    wiring = "per-agent token"
+    if mode & 0o077:
+        wiring = "insecure-config"
+        status["error"] = "config permissions are wider than 0600"
+    expected_tenant = (environment.get("INVESTIGATOR_TENANT") or "").strip()
+    if expected_tenant and status.get("tenant") != expected_tenant:
+        wiring = "mismatched-token"
+        status["error"] = "token tenant does not match INVESTIGATOR_TENANT"
+    expected_actor = (environment.get("INVESTIGATOR_MCP_ACTOR") or "").strip()
+    if expected_actor and status.get("actor") != expected_actor:
+        wiring = "mismatched-token"
+        status["error"] = "token actor does not match INVESTIGATOR_MCP_ACTOR"
+    status["wiring"] = wiring
+    return status
+
+
 def _console_status(client: ConsoleClient, args: argparse.Namespace) -> int:
     controllers = client.controllers()
     agents = client.agents()
     rooms = client.rooms()
     online = [item for item in controllers if item.get("state") == "online"]
+    agent_auth = {str(item.get("name")): _agent_auth_status(item) for item in agents}
     payload = {
         "console_url": client.settings.server_url,
         "controllers": controllers,
         "agents": agents,
+        "agent_auth": agent_auth,
         "rooms": rooms,
     }
     if args.json:
@@ -756,11 +873,43 @@ def _console_status(client: ConsoleClient, args: argparse.Namespace) -> int:
         print(f"- {item.get('name')} ({item.get('state')}) {item.get('id')}")
     print(f"Console-managed agents: {len(agents)}")
     for item in agents:
-        definition = item.get("definition") or {}
+        definition = item.get("definition")
+        if not isinstance(definition, dict):
+            definition = {}
         print(
             f"- {item.get('name')} provider={definition.get('provider')} "
-            f"desired={item.get('desired_state')} id={item.get('agent_id')}"
+            f"desired={item.get('desired_state')} id={item.get('agent_id')} "
+            f"isolation={definition.get('isolation') or 'unknown'}"
         )
+        auth = agent_auth.get(str(item.get("name")), {})
+        if auth.get("wiring") == "per-agent token":
+            expires = auth.get("expires_in_seconds")
+            if not isinstance(expires, int):
+                suffix = "expiry unknown"
+            elif expires <= 7 * 24 * 3600:
+                suffix = f"expires in {max(0, expires // 3600)}h (within 7 days)"
+            else:
+                suffix = f"expires in {max(0, expires // 86400)}d"
+            print(
+                f"  auth=token actor={auth.get('actor')} {suffix} "
+                f"expires={auth.get('expires_at')} tools={','.join(auth.get('tools') or [])}"
+            )
+        elif auth.get("wiring") == "expired-token":
+            print(
+                f"  auth=token EXPIRED at {auth.get('expires_at')} "
+                f"actor={auth.get('actor')} tools={','.join(auth.get('tools') or [])}"
+            )
+        elif auth.get("wiring") == "invalid-token":
+            print(f"  auth=token INVALID ({auth.get('error')}) config={auth.get('config')}")
+        elif auth.get("wiring") == "mismatched-token":
+            print(f"  auth=token MISMATCH ({auth.get('error')}) config={auth.get('config')}")
+        elif auth.get("wiring") == "insecure-config":
+            print(
+                f"  auth=token INSECURE ({auth.get('error')}) "
+                f"mode={auth.get('mode')} config={auth.get('config')}"
+            )
+        else:
+            print(f"  auth={auth.get('wiring')}")
     print(f"Rooms: {len(rooms)}")
     for item in rooms:
         print(f"- {item.get('name')} {item.get('id') or item.get('room_id')}")
@@ -846,6 +995,12 @@ def _console_setup(client: ConsoleClient, args: argparse.Namespace) -> int:
             "credentials; pass --actor-tokens for authenticated, attributed calls.",
             file=sys.stderr,
         )
+    if args.isolation == "shared":
+        print(
+            "Warning: Console agent isolation is shared; use --isolation isolated "
+            "for a per-agent filesystem boundary.",
+            file=sys.stderr,
+        )
     created: dict[str, str] = {}
     updated: list[str] = []
     for spec in AGENTS:
@@ -862,16 +1017,25 @@ def _console_setup(client: ConsoleClient, args: argparse.Namespace) -> int:
                 instructions=instructions,
                 directory=agent_directory_arg,
                 auto_mode=args.auto_mode,
+                isolation=args.isolation,
             )
             created[spec.name] = str(item["agent_id"])
             continue
-        if args.refresh or (args.actor_tokens and agent_directory_arg != str(directory)):
+        current_definition = current.get("definition") or {}
+        current_isolation = current_definition.get("isolation")
+        current_directory = current_definition.get("directory")
+        if (
+            args.refresh
+            or str(current_directory or "") != agent_directory_arg
+            or current_isolation != args.isolation
+        ):
             client.update_agent(
                 str(current["agent_id"]),
                 instructions=instructions,
                 directory=agent_directory_arg,
                 provider=args.provider,
                 auto_mode=args.auto_mode,
+                isolation=args.isolation,
             )
             updated.append(spec.name)
 
@@ -909,6 +1073,7 @@ def _console_setup(client: ConsoleClient, args: argparse.Namespace) -> int:
         "agent_directories": agent_dirs,
         "token_ttl_seconds": args.token_ttl if args.actor_tokens else None,
         "key_rotated": bool(args.actor_tokens and args.rotate_key),
+        "console_isolation": args.isolation,
         "actor_token_boundary": (
             "authentication-only; same-uid agents can read each other's tokens and the shared key"
             if args.actor_tokens
@@ -966,7 +1131,8 @@ def _wire_console_actor_tokens(args: argparse.Namespace, directory: Path) -> dic
         return {}
     if args.token_ttl > DEFAULT_TOKEN_TTL_SECONDS * 4:
         print(
-            "Error: tokens are operational credentials; --token-ttl beyond a year is not supported",
+            "Error: tokens are operational credentials; --token-ttl must be at most "
+            f"{DEFAULT_TOKEN_TTL_SECONDS * 4 // 86400} days",
             file=sys.stderr,
         )
         return {}

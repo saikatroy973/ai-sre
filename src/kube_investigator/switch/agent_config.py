@@ -18,11 +18,13 @@ never committed.  The private key stays operator-side under ``mcp-auth``.
 
 Same-uid limit: this separation is credential hygiene, not an OS boundary.
 All Console agents currently run as the same operating-system user, so any one
-of them can read another agent's config and the shared signing key.  A
-compromised agent can mint or replay another actor's token and forge the audit
-attribution.  Use a signing service with independent approval/identity checks,
-or a separate uid/container per agent, before treating these names as a
-security boundary.
+of them can read another agent's config and the shared signing key.  Tokens
+also travel in the MCP child environment, so a same-user process can read them
+with ``ps -ax -Eww``.  A compromised agent can mint or replay another actor's
+token and forge the audit attribution; that account can also open the evidence
+DB or audit files directly.  Use a signing service with independent
+approval/identity checks, or a separate uid/container per agent, before
+treating these names as a security boundary.
 """
 
 from __future__ import annotations
@@ -36,12 +38,18 @@ from kube_investigator.mcp_auth import (
     PRIVATE_KEY_NAME,
     generate_actor_keypair,
     sign_actor_token,
+    tools_for_actor,
 )
 
 AGENT_CONFIG_DIR = ".data"
 AGENT_CONFIG_SUBDIR = "console-agents"
 AUTH_SUBDIR = "mcp-auth"
 DEFAULT_TOKEN_TTL_SECONDS = 14 * 24 * 3600
+
+
+def agent_tools(agent_name: str) -> list[str]:
+    """Return the MCP tools granted to one Console agent role."""
+    return tools_for_actor(agent_name)
 
 
 def agent_directories_root(data_dir: Path) -> Path:
@@ -71,6 +79,7 @@ def _permissions() -> dict[str, str]:
         "kube-investigator_kube_investigator_verify": "allow",
         "kube-investigator_kube_investigator_memory": "allow",
         "kube-investigator_kube_investigator_source_status": "allow",
+        "kube-investigator_kube_investigator_docs": "allow",
     }
 
 
@@ -100,6 +109,7 @@ def write_agent_config(
     python_bin: Path,
     token_ttl: int = DEFAULT_TOKEN_TTL_SECONDS,
     tenant: str = "local",
+    tools: list[str] | None = None,
 ) -> Path:
     """Write ``<agent>/opencode.json`` and return the directory.
 
@@ -107,7 +117,13 @@ def write_agent_config(
     fresh so ``exp`` stays valid across setup re-runs.
     """
     _private_path, public_key = generate_actor_keypair(auth_dir)
-    token = sign_actor_token(_private_path, agent_name, tenant, token_ttl)
+    token = sign_actor_token(
+        _private_path,
+        agent_name,
+        tenant,
+        token_ttl,
+        tools=agent_tools(agent_name) if tools is None else tools,
+    )
     directory = agent_directory(data_dir, agent_name)
     directory.mkdir(parents=True, mode=0o700, exist_ok=True)
     config = {
@@ -144,6 +160,7 @@ def write_agent_directories(
     token_ttl: int = DEFAULT_TOKEN_TTL_SECONDS,
     tenant: str = "local",
     rotate_key: bool = False,
+    tools: list[str] | None = None,
 ) -> dict[str, Path]:
     """One directory (and one identity) per Console agent.
 
@@ -167,15 +184,27 @@ def write_agent_directories(
             python_bin=python_bin,
             token_ttl=token_ttl,
             tenant=tenant,
+            tools=tools,
         )
         for name in agent_names
     }
 
 
 def load_config_environment(config_path: Path) -> dict[str, str]:
-    """Read the MCP environment block back out of a written agent config."""
+    """Read the MCP environment block back out of a written agent config.
+
+    Raises ``ValueError`` for a structurally malformed config instead of
+    letting a ``TypeError`` escape from an index into a non-mapping.
+    """
     payload = json.loads(config_path.read_text())
-    server = payload["mcp"]["kube-investigator"]
+    if not isinstance(payload, dict):
+        raise ValueError(f"{config_path} is not a JSON object")
+    server = payload.get("mcp")
+    if not isinstance(server, dict):
+        raise ValueError(f"{config_path} has no mcp config block")
+    server = server.get("kube-investigator")
+    if not isinstance(server, dict):
+        raise ValueError(f"{config_path} has no kube-investigator MCP server")
     environment = server.get("environment") or {}
     if not isinstance(environment, dict):
         raise ValueError(f"{config_path} has a malformed MCP environment block")

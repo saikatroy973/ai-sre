@@ -7,6 +7,8 @@ is the gate; this file only produces the evidence.
 
 from __future__ import annotations
 
+import errno
+import hashlib
 import json
 import os
 import pathlib
@@ -34,11 +36,19 @@ def probe_uid() -> None:
 
 def probe_filesystem_is_read_only() -> None:
     for target in ("/app", "/usr/local/lib", "/etc", "/root"):
-        probe_path = pathlib.Path(target) / "isolation-selftest"
+        base = pathlib.Path(target)
+        # A missing path must not count as read-only: the probe would pass
+        # vacuously if the image layout changed.
+        if not base.is_dir():
+            raise RuntimeError(f"probe path is missing: {target}")
         try:
-            probe_path.write_text("x")
-        except OSError:
+            (base / "isolation-selftest").write_text("x")
+        except PermissionError:
             continue
+        except OSError as exc:
+            if exc.errno in (errno.EACCES, errno.EPERM, errno.EROFS):
+                continue
+            raise RuntimeError(f"unexpected error writing {target}: {exc}") from exc
         raise RuntimeError(f"writable program path: {target}")
 
 
@@ -46,12 +56,19 @@ def probe_no_network() -> None:
     for host, port in (("1.1.1.1", 443), ("10.0.0.1", 53)):
         try:
             socket.create_connection((host, port), timeout=2).close()
+        except TimeoutError as exc:
+            # Dropped packets mean a filtered network, not an absent one.
+            raise RuntimeError(f"connect to {host}:{port} timed out (filtered)") from exc
         except OSError:
             continue
         raise RuntimeError(f"opened a socket to {host}:{port}")
     try:
         urllib.request.urlopen("http://example.invalid/", timeout=2)  # noqa: S310 - bound, dead
-    except (urllib.error.URLError, OSError):
+    except urllib.error.URLError as exc:
+        if isinstance(exc.reason, TimeoutError):
+            raise RuntimeError("HTTP probe timed out (filtered network)") from exc
+        return
+    except OSError:
         return
     raise RuntimeError("served an HTTP request unexpectedly")
 
@@ -165,11 +182,15 @@ def probe_evidence_store() -> None:
     """
     investigation_id = (os.environ.get("INVESTIGATOR_EVIDENCE_PROBE_ID") or "").strip()
     diagnosis = (os.environ.get("INVESTIGATOR_EVIDENCE_PROBE_DIAGNOSIS") or "").strip()
-    if not investigation_id or not diagnosis:
-        raise RuntimeError("staged evidence env is missing (id and diagnosis)")
+    expected_sha256 = (os.environ.get("INVESTIGATOR_EVIDENCE_PROBE_SHA256") or "").strip()
+    if not investigation_id or not diagnosis or not expected_sha256:
+        raise RuntimeError("staged evidence env is missing (id, diagnosis, or digest)")
     snapshot = pathlib.Path("/evidence/investigator.sqlite3")
     if not snapshot.is_file():
         raise RuntimeError("/evidence exposes no investigator.sqlite3 snapshot")
+    digest = hashlib.sha256(snapshot.read_bytes()).hexdigest()
+    if digest != expected_sha256:
+        raise RuntimeError("staged evidence snapshot digest does not match probe.env")
     try:
         (pathlib.Path("/evidence") / "isolation-selftest").write_text("x")
     except OSError:

@@ -67,6 +67,44 @@ def test_audit_command_reads_and_verifies_tool_log(tmp_path, capsys):
     assert "Tool audit chain is valid." in capsys.readouterr().out
 
 
-def test_audit_verify_reports_an_empty_log(tmp_path, capsys):
-    assert main(["audit", "--verify", "--data-dir", str(tmp_path / "empty")]) == 0
-    assert "No tool audit entries found" in capsys.readouterr().out
+def test_audit_verify_rejects_an_empty_log(tmp_path, capsys):
+    assert main(["audit", "--verify", "--data-dir", str(tmp_path / "empty")]) == 1
+    output = capsys.readouterr().out
+    assert "Tool audit chain is invalid." in output
+    assert "audit log is empty" in output
+
+
+def test_external_audit_anchor_detects_truncation_and_deletion(tmp_path, monkeypatch):
+    from kube_investigator.audit import append_audit, verify_audit
+
+    data_dir = tmp_path / "data"
+    anchor_dir = tmp_path / "anchor"
+    monkeypatch.setenv("INVESTIGATOR_AUDIT_ANCHOR_DIR", str(anchor_dir))
+    assert append_audit(data_dir, "tool-audit", {"tool": "get", "actor": "a"})
+    assert append_audit(data_dir, "tool-audit", {"tool": "verify", "actor": "a"})
+    ok, errors = verify_audit(data_dir, "tool-audit")
+    assert ok is True
+    assert errors == []
+    anchors = list(anchor_dir.glob("tool-audit.*.anchor.json"))
+    assert len(anchors) == 1
+
+    audit_path = data_dir / "tool-audit.jsonl"
+    lines = audit_path.read_text().splitlines()
+    audit_path.write_text(lines[0] + "\n")
+    ok, errors = verify_audit(data_dir, "tool-audit")
+    assert ok is False
+    assert "external audit anchor entry count mismatch" in errors
+
+    audit_path.unlink()
+    ok, errors = verify_audit(data_dir, "tool-audit")
+    assert ok is False
+    assert "audit log is empty" in errors
+    assert "external audit anchor entry count mismatch" in errors
+
+
+def test_audit_verify_rejects_an_empty_log_without_an_anchor(tmp_path, capsys):
+    from kube_investigator.audit import verify_audit
+
+    ok, errors = verify_audit(tmp_path / "empty", "tool-audit")
+    assert ok is False
+    assert errors == ["audit log is empty"]

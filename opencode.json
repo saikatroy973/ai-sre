@@ -7,12 +7,17 @@
     "kube-investigator_kube_investigator_get": "allow",
     "kube-investigator_kube_investigator_verify": "allow",
     "kube-investigator_kube_investigator_memory": "allow",
-    "kube-investigator_kube_investigator_source_status": "allow"
+    "kube-investigator_kube_investigator_source_status": "allow",
+    "kube-investigator_kube_investigator_docs": "allow"
   },
   "mcp": {
     "kube-investigator": {
       "type": "local",
-      "command": [".venv/bin/python", "-m", "kube_investigator.mcp_server"],
+      "command": [
+        ".venv/bin/python",
+        "-m",
+        "kube_investigator.mcp_server"
+      ],
       "enabled": true
     }
   }

@@ -89,6 +89,11 @@ call `kube_investigator_run` with the question, cluster, namespace, service,
 Deployment, and any fixture scenario from the request. Then call
 `kube_investigator_get` with the returned investigation_id.
 
+Before stating a cause, search the Kubernetes documentation with
+`kube_investigator_docs` for the failure signature (for example "service has no
+endpoints", "container restarting", "readiness probe failing") and cite the
+documentation URL in the evidence-summary. The docs tool is read-only.
+
 Create the `evidence-summary` room document listing every evidence ID, kind,
 completeness, digest, and the candidate diagnosis. Send the result with
 `send_targeted_message` to `incident-commander`: include the investigation_id,
@@ -254,7 +259,7 @@ AGENTS: tuple[AgentSpec, ...] = (
         description="Reads pods, Deployments, ReplicaSets, Services, and EndpointSlices.",
         role="cluster-investigator",
         model_profile="balanced",
-        tools=["kubernetes-read"],
+        tools=["kubernetes-read", "docs-read"],
     ),
     AgentSpec(
         name="telemetry-analyst",

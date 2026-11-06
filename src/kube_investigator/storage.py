@@ -197,6 +197,61 @@ class Store:
                 raise ValueError("Investigation was already advanced by another caller")
         return updated
 
+    def delete_investigations(
+        self,
+        investigation_ids: list[str],
+        *,
+        queue_job_ids: list[str] | tuple[str, ...] = (),
+    ) -> None:
+        """Delete old investigation rows, temporarily lifting the evidence guard.
+
+        The append-only triggers protect normal application writes.  Retention
+        is an explicit operator action, so it removes the matching queue rows,
+        evidence, and messages in the same locked transaction and restores the
+        triggers.
+        """
+        queue_ids = list(queue_job_ids)
+        if not investigation_ids and not queue_ids:
+            return
+        with self.connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute("DROP TRIGGER IF EXISTS evidence_no_update")
+            connection.execute("DROP TRIGGER IF EXISTS evidence_no_delete")
+            try:
+                for job_id in queue_ids:
+                    connection.execute(
+                        "DELETE FROM investigation_queue WHERE id = ?",
+                        (job_id,),
+                    )
+                for investigation_id in investigation_ids:
+                    connection.execute(
+                        "DELETE FROM messages WHERE investigation_id = ?",
+                        (investigation_id,),
+                    )
+                    connection.execute(
+                        "DELETE FROM evidence WHERE investigation_id = ?",
+                        (investigation_id,),
+                    )
+                    connection.execute(
+                        "DELETE FROM investigations WHERE id = ?",
+                        (investigation_id,),
+                    )
+            finally:
+                connection.execute(
+                    """
+                    CREATE TRIGGER IF NOT EXISTS evidence_no_update
+                        BEFORE UPDATE ON evidence BEGIN
+                        SELECT RAISE(ABORT, 'evidence is append-only'); END
+                    """
+                )
+                connection.execute(
+                    """
+                    CREATE TRIGGER IF NOT EXISTS evidence_no_delete
+                        BEFORE DELETE ON evidence BEGIN
+                        SELECT RAISE(ABORT, 'evidence is append-only'); END
+                    """
+                )
+
     def append_evidence(self, evidence: Evidence) -> None:
         investigation = self.get(evidence.investigation_id)
         if evidence.scope != investigation.scope or evidence.sha256 != evidence.digest():

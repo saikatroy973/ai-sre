@@ -73,8 +73,9 @@ investigation into a throwaway `.data/isolation-evidence/` directory, cuts a
 read-only SQLite snapshot of the evidence store (`VACUUM`-safe backup,
 journal mode converted out of WAL because a read-only connection cannot
 create the `-shm` file it needs on an immutable mount, file mode 0444), and
-binds it into the container at `/evidence:ro` with the investigation id and
-scope in the environment.
+records the snapshot SHA-256 in `probe.env`. It binds the snapshot into the
+container at `/evidence:ro` with the investigation id, scope, and digest; the
+in-container probe recomputes the digest before trusting the mount.
 
 It then builds the image and runs five probes inside the hardened container;
 each must print `PASS`, or the script exits nonzero:
@@ -84,8 +85,13 @@ PASS uid-isolation          # os.getuid() != 0
 PASS filesystem-isolation   # /app, /usr/local/lib, /etc, /root reject writes
 PASS network-isolation      # TCP connect + DNS/HTTP fail from inside
 PASS mcp-stdio-handshake    # initialize -> tools/list -> memory call answers
-PASS evidence-store         # get -> real staged report; verify -> re-passes; write to /evidence rejected
+PASS evidence-store         # digest match -> get/verify real staged report; write rejected
 ```
+
+The filesystem probe requires all four paths to exist and accepts only
+permission/read-only errors; a missing path fails the probe instead of passing
+vacuously. The network probe treats a connect timeout as a filtered (not
+isolated) network.
 
 Recorded evidence (2026-11-05, CI isolation job, image
 `sha256:79c0a5a5…`; an earlier local Docker Desktop run passed the same
@@ -120,20 +126,26 @@ the verified actor and never go into the evidence database.
 
 OS isolation bounds *what the process can do*; Ed25519 actor tokens
 (`src/kube_investigator/mcp_auth.py`, wiring via
-`switch console setup --actor-tokens`) are intended to distinguish *who is
-being seen*. Every MCP tool except `health` requires a valid signed token when
-a public key is configured; `health` stays open because it is a liveness probe.
+`switch console setup`) are intended to distinguish *who is being seen*. Every
+MCP tool except `health` requires a valid signed token when a public key is
+configured; generated tokens also carry a role-specific `tools` claim, and
+unauthorized tool calls fail closed. `health` stays open because it is a
+liveness probe, but returns only non-sensitive liveness data without a valid
+token.
 
 That distinction is only a credential, not a same-uid isolation boundary. In
 the local Console profile all six agents run as the operator account, so any
 one of them can read another agent's mode-0600 config and the shared signing
 key under `.data/mcp-auth`, then mint or replay another actor's token and forge
-the audit attribution. The containerized profile isolates the MCP *server* and
-keeps its `/data` on a private tmpfs, but Console still launches the MCP server
-outside that container and the parent agents still share the operator uid.
-Treat actor tokens as credential hygiene until token signing moves behind a
-service with independent approval/identity checks, or each agent gets a
-separate uid/container.
+the audit attribution. Tokens are passed to the MCP child as environment
+variables, so `ps -ax -Eww` exposes them to any same-user process. That same
+account can open the evidence SQLite file directly — the append-only triggers
+only guard the application connection — and can rewrite or delete audit files.
+The containerized profile isolates the MCP *server* and keeps its `/data` on a
+private tmpfs, but Console still launches the MCP server outside that container
+and the parent agents still share the operator uid. Treat actor tokens as
+credential hygiene until token signing moves behind a service with independent
+approval/identity checks, or each agent gets a separate uid/container.
 
 ## Known limits (honest)
 
@@ -157,5 +169,5 @@ separate uid/container.
 | filesystem | `PASS filesystem-isolation` (write probes rejected on 4 paths) |
 | network | `PASS network-isolation` (2 TCP probes + HTTP probe rejected) |
 | stdio | `PASS mcp-stdio-handshake` (initialize, tools/list, memory ok=true) |
-| evidence | `PASS evidence-store` (staged get ok, verify re-passed, mount write rejected) |
+| evidence | `PASS evidence-store` (snapshot digest matched, staged get ok, verify re-passed, mount write rejected) |
 | gate | `ISOLATION-OK all probes passed` and `ISOLATION-OK` from verify.sh |

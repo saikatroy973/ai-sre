@@ -1,4 +1,5 @@
 import json
+import time
 
 import httpx
 import pytest
@@ -101,6 +102,7 @@ def test_console_login_and_create_agent_use_the_gateway_management_api():
             assert body["definition"]["auto_mode"] is True
             assert body["definition"]["auto_approve"] is False
             assert body["definition"]["directory"] == "/repo"
+            assert body["definition"]["isolation"] == "isolated"
             return response({"agent_id": "agent-1", "name": "incident-commander"}, status=201)
         raise AssertionError(f"unexpected path {request.url.path}")
 
@@ -259,7 +261,7 @@ class FakeConsoleClient:
             "definition": {
                 "provider": kwargs["provider"],
                 "directory": kwargs.get("directory"),
-                "isolation": "shared",
+                "isolation": kwargs.get("isolation", "shared"),
             },
             "desired_state": "running",
         }
@@ -275,6 +277,8 @@ class FakeConsoleClient:
                     definition["directory"] = kwargs["directory"]
                 if "provider" in kwargs:
                     definition["provider"] = kwargs["provider"]
+                if "isolation" in kwargs:
+                    definition["isolation"] = kwargs["isolation"]
         return {"agent_id": agent_id, **kwargs}
 
     def create_rooms_from_yaml(self, template):
@@ -393,8 +397,8 @@ def test_console_setup_actor_tokens_wires_and_updates_existing_agents(
     tmp_path, monkeypatch, capsys
 ):
     _configure(monkeypatch, tmp_path)
-    # First run creates the six agents with the shared working directory.
-    assert main(["switch", "console", "setup"]) == 0
+    # First run creates the six agents with an explicit shared baseline.
+    assert main(["switch", "console", "setup", "--no-actor-tokens", "--isolation", "shared"]) == 0
     capsys.readouterr()  # discard the non-JSON run
     shared = FakeConsoleClient.instances[-1]
     assert shared.agent_calls and not shared.update_calls
@@ -446,16 +450,94 @@ def test_console_setup_actor_tokens_wires_and_updates_existing_agents(
         assert "instructions" in item
 
 
+def test_console_setup_defaults_to_tokens_and_isolated_agents(tmp_path, monkeypatch, capsys):
+    _configure(monkeypatch, tmp_path)
+    assert main(["switch", "console", "setup", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["actor_tokens_enabled"] is True
+    assert payload["console_isolation"] == "isolated"
+    fake = FakeConsoleClient.instances[-1]
+    assert {call["isolation"] for call in fake.agent_calls} == {"isolated"}
+    assert all(
+        (tmp_path / ".data" / "console-agents" / name / "opencode.json").is_file()
+        for name in payload["agent_directories"]
+    )
+
+
+def test_console_status_reports_token_wiring_tools_and_expiry(tmp_path, monkeypatch, capsys):
+    _configure(monkeypatch, tmp_path)
+    assert main(["switch", "console", "setup", "--actor-tokens", "--json"]) == 0
+    capsys.readouterr()
+    shared = FakeConsoleClient.instances[-1]
+    monkeypatch.setattr(
+        "kube_investigator.cli.ConsoleClient",
+        lambda configuration: shared,
+    )
+    assert main(["switch", "console", "status", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    auth = payload["agent_auth"]["memory-researcher"]
+    assert auth["wiring"] == "per-agent token"
+    assert auth["actor"] == "memory-researcher"
+    assert auth["tools"] == ["memory"]
+    assert auth["expires_at"]
+    assert auth["expires_in_seconds"] > 0
+    assert {item["definition"]["isolation"] for item in payload["agents"]} == {"isolated"}
+
+
+def test_console_status_reports_expired_and_invalid_tokens(tmp_path, monkeypatch, capsys):
+    from kube_investigator.mcp_auth import PRIVATE_KEY_NAME, sign_actor_token
+
+    _configure(monkeypatch, tmp_path)
+    assert main(["switch", "console", "setup", "--json"]) == 0
+    capsys.readouterr()
+    shared = FakeConsoleClient.instances[-1]
+    monkeypatch.setattr("kube_investigator.cli.ConsoleClient", lambda configuration: shared)
+
+    agents_root = tmp_path / ".data" / "console-agents"
+    corrupt_path = agents_root / "change-analyst" / "opencode.json"
+    corrupt = json.loads(corrupt_path.read_text())
+    corrupt["mcp"]["kube-investigator"]["environment"]["INVESTIGATOR_MCP_ACTOR_TOKEN"] = (
+        "not.a.token"
+    )
+    corrupt_path.write_text(json.dumps(corrupt))
+
+    private_key = tmp_path / ".data" / "mcp-auth" / PRIVATE_KEY_NAME
+    expired = sign_actor_token(private_key, "telemetry-analyst", "local", 1, tools=["get"])
+    expired_path = agents_root / "telemetry-analyst" / "opencode.json"
+    payload = json.loads(expired_path.read_text())
+    payload["mcp"]["kube-investigator"]["environment"]["INVESTIGATOR_MCP_ACTOR_TOKEN"] = expired
+    expired_path.write_text(json.dumps(payload))
+    real_time = time.time
+    monkeypatch.setattr("kube_investigator.mcp_auth.time.time", lambda: real_time() + 10)
+
+    assert main(["switch", "console", "status", "--json"]) == 0
+    auth = json.loads(capsys.readouterr().out)["agent_auth"]
+    assert auth["change-analyst"]["wiring"] == "invalid-token"
+    assert auth["change-analyst"]["valid"] is False
+    assert auth["change-analyst"]["error"]
+    assert auth["telemetry-analyst"]["wiring"] == "expired-token"
+    assert auth["telemetry-analyst"]["expired"] is True
+    assert auth["memory-researcher"]["wiring"] == "per-agent token"
+
+    assert main(["switch", "console", "status"]) == 0
+    output = capsys.readouterr().out
+    assert "auth=token INVALID" in output
+    assert "auth=token EXPIRED" in output
+
+
 def test_console_setup_without_actor_tokens_never_rewrites_agents(tmp_path, monkeypatch, capsys):
     _configure(monkeypatch, tmp_path)
-    assert main(["switch", "console", "setup"]) == 0
+    assert main(["switch", "console", "setup", "--no-actor-tokens", "--isolation", "shared"]) == 0
     capsys.readouterr()  # discard the non-JSON run
     shared = FakeConsoleClient.instances[-1]
     monkeypatch.setattr(
         "kube_investigator.cli.ConsoleClient",
         lambda configuration: shared,
     )
-    assert main(["switch", "console", "setup", "--json"]) == 0
+    assert (
+        main(["switch", "console", "setup", "--no-actor-tokens", "--isolation", "shared", "--json"])
+        == 0
+    )
     payload = json.loads(capsys.readouterr().out)
     assert payload["actor_tokens_enabled"] is False
     assert payload["agent_directories"] == {}
@@ -493,7 +575,7 @@ def test_console_setup_signs_tokens_for_the_configured_tenant(tmp_path, monkeypa
 
 def test_rotate_key_requires_actor_tokens(tmp_path, monkeypatch, capsys):
     _configure(monkeypatch, tmp_path)
-    assert main(["switch", "console", "setup", "--rotate-key"]) == 1
+    assert main(["switch", "console", "setup", "--no-actor-tokens", "--rotate-key"]) == 1
     assert "--rotate-key requires --actor-tokens" in capsys.readouterr().err
 
 
@@ -506,7 +588,7 @@ def test_setup_refuses_to_silently_downgrade_per_agent_wiring(tmp_path, monkeypa
         "kube_investigator.cli.ConsoleClient",
         lambda configuration: shared,
     )
-    assert main(["switch", "console", "setup", "--refresh"]) == 1
+    assert main(["switch", "console", "setup", "--no-actor-tokens", "--refresh"]) == 1
     assert "--allow-shared-directory" in capsys.readouterr().err
 
     assert (
@@ -516,6 +598,7 @@ def test_setup_refuses_to_silently_downgrade_per_agent_wiring(tmp_path, monkeypa
                 "console",
                 "setup",
                 "--refresh",
+                "--no-actor-tokens",
                 "--allow-shared-directory",
                 "--json",
             ]
@@ -530,5 +613,65 @@ def test_setup_refuses_to_silently_downgrade_per_agent_wiring(tmp_path, monkeypa
 
 def test_setup_warns_when_wiring_the_shared_unauthenticated_config(tmp_path, monkeypatch, capsys):
     _configure(monkeypatch, tmp_path)
-    assert main(["switch", "console", "setup"]) == 0
+    assert main(["switch", "console", "setup", "--no-actor-tokens"]) == 0
     assert "shared MCP config without per-agent credentials" in capsys.readouterr().err
+
+
+def test_console_status_reports_mismatch_and_malformed_configs(tmp_path, monkeypatch, capsys):
+    from kube_investigator.mcp_auth import PRIVATE_KEY_NAME, sign_actor_token
+
+    _configure(monkeypatch, tmp_path)
+    assert main(["switch", "console", "setup", "--json"]) == 0
+    capsys.readouterr()
+    shared = FakeConsoleClient.instances[-1]
+    monkeypatch.setattr("kube_investigator.cli.ConsoleClient", lambda configuration: shared)
+
+    agents_root = tmp_path / ".data" / "console-agents"
+    private_key = tmp_path / ".data" / "mcp-auth" / PRIVATE_KEY_NAME
+
+    tenant_path = agents_root / "memory-researcher" / "opencode.json"
+    tenant_config = json.loads(tenant_path.read_text())
+    tenant_environment = tenant_config["mcp"]["kube-investigator"]["environment"]
+    tenant_environment["INVESTIGATOR_MCP_ACTOR_TOKEN"] = sign_actor_token(
+        private_key, "memory-researcher", "other-tenant", 3600, tools=["memory"]
+    )
+    tenant_path.write_text(json.dumps(tenant_config))
+
+    actor_path = agents_root / "telemetry-analyst" / "opencode.json"
+    actor_config = json.loads(actor_path.read_text())
+    actor_environment = actor_config["mcp"]["kube-investigator"]["environment"]
+    actor_environment["INVESTIGATOR_MCP_ACTOR"] = "evidence-verifier"
+    actor_path.write_text(json.dumps(actor_config))
+
+    (agents_root / "change-analyst" / "opencode.json").write_text("[]")
+
+    assert main(["switch", "console", "status", "--json"]) == 0
+    auth = json.loads(capsys.readouterr().out)["agent_auth"]
+    assert auth["memory-researcher"]["wiring"] == "mismatched-token"
+    assert "tenant" in auth["memory-researcher"]["error"]
+    assert auth["telemetry-analyst"]["wiring"] == "mismatched-token"
+    assert "actor" in auth["telemetry-analyst"]["error"]
+    assert auth["change-analyst"]["wiring"] == "invalid-config"
+
+
+def test_agent_auth_status_survives_a_malformed_definition():
+    from kube_investigator.cli import _agent_auth_status
+
+    assert _agent_auth_status({"definition": "not-a-dict"})["wiring"] == "unreported"
+    assert _agent_auth_status({"definition": {"directory": 7}})["wiring"] == "unreported"
+
+
+def test_console_status_flags_loose_config_permissions(tmp_path, monkeypatch, capsys):
+    _configure(monkeypatch, tmp_path)
+    assert main(["switch", "console", "setup", "--json"]) == 0
+    capsys.readouterr()
+    shared = FakeConsoleClient.instances[-1]
+    monkeypatch.setattr("kube_investigator.cli.ConsoleClient", lambda configuration: shared)
+
+    config_path = tmp_path / ".data" / "console-agents" / "memory-researcher" / "opencode.json"
+    config_path.chmod(0o644)
+
+    assert main(["switch", "console", "status", "--json"]) == 0
+    auth = json.loads(capsys.readouterr().out)["agent_auth"]
+    assert auth["memory-researcher"]["wiring"] == "insecure-config"
+    assert "0600" in auth["memory-researcher"]["error"]

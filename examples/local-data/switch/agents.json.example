@@ -1,0 +1,12 @@
+{
+  "agents": {
+    "incident-commander": {"agent_id": "<uuid>", "api_key": "<SWITCH_AGENT_KEY>"},
+    "cluster-investigator": {"agent_id": "<uuid>", "api_key": "<SWITCH_AGENT_KEY>"},
+    "telemetry-analyst": {"agent_id": "<uuid>", "api_key": "<SWITCH_AGENT_KEY>"},
+    "change-analyst": {"agent_id": "<uuid>", "api_key": "<SWITCH_AGENT_KEY>"},
+    "memory-researcher": {"agent_id": "<uuid>", "api_key": "<SWITCH_AGENT_KEY>"},
+    "evidence-verifier": {"agent_id": "<uuid>", "api_key": "<SWITCH_AGENT_KEY>"}
+  },
+  "base_url": "http://127.0.0.1:18000",
+  "version": 1
+}

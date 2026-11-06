@@ -413,9 +413,15 @@ class _RoomSocket:
         return None
 
     def _read_loop(self) -> None:
+        import websocket
+
         while not self._stop.is_set():
             try:
                 frame = json.loads(self._socket.recv())
+            except websocket.WebSocketTimeoutException:
+                # A quiet room is not a dead room: the socket has a short read
+                # timeout so the loop can answer the server's ping frames.
+                continue
             except Exception:
                 if not self._stop.is_set():
                     self._error = SwitchError("Switch room connection was lost")

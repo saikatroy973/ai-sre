@@ -11,7 +11,7 @@
 #
 # Build and probe: bash deploy/mcp-container/verify.sh
 
-FROM python:3.14-slim
+FROM python:3.14-slim@sha256:f1b121a95d6295f7291a0fda8280f747efd657bd055e7c1f156936ed2dc5a112
 
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \

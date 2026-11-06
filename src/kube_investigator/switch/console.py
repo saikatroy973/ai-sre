@@ -277,7 +277,10 @@ class ConsoleClient:
         model: str | None = None,
         desired_state: str = "running",
         auto_mode: bool = True,
+        isolation: str = "isolated",
     ) -> dict[str, Any]:
+        if isolation not in {"shared", "isolated"}:
+            raise ConfigurationError("Console agent isolation must be shared or isolated")
         payload = {
             "name": name,
             "description": description,
@@ -292,7 +295,7 @@ class ConsoleClient:
                 "auto_mode": auto_mode,
                 "auto_approve": False,
                 "directory": directory,
-                "isolation": "shared",
+                "isolation": isolation,
             },
         }
         response = self._request("POST", "/gateway/management/agents", json=payload)
@@ -310,7 +313,10 @@ class ConsoleClient:
         desired_state: str = "running",
         auto_mode: bool = True,
         provider: str = "opencode",
+        isolation: str = "isolated",
     ) -> dict[str, Any]:
+        if isolation not in {"shared", "isolated"}:
+            raise ConfigurationError("Console agent isolation must be shared or isolated")
         payload: dict[str, Any] = {
             "desired_state": desired_state,
             "definition": {
@@ -320,7 +326,7 @@ class ConsoleClient:
                 "auto_mode": auto_mode,
                 "auto_approve": False,
                 "directory": directory,
-                "isolation": "shared",
+                "isolation": isolation,
             },
         }
         response = self._request(

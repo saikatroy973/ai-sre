@@ -411,6 +411,7 @@ def test_mcp_exposes_only_read_only_investigation_tools():
         "kube_investigator_verify",
         "kube_investigator_memory",
         "kube_investigator_source_status",
+        "kube_investigator_docs",
     }
     forbidden = ("apply", "delete", "exec", "patch", "scale", "secret", "write")
     assert not [name for name in names if any(word in name for word in forbidden)]
