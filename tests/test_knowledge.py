@@ -37,8 +37,17 @@ def make_docs(tmp_path):
     (source / "concepts" / "workloads").mkdir(parents=True)
     (source / "concepts" / "services" / "service.md").write_text(SERVICE_DOC)
     (source / "concepts" / "workloads" / "_index.md").write_text(PROBE_DOC)
+    knowledge = tmp_path / "knowledge"
+    (knowledge / "cluster-investigator").mkdir(parents=True)
+    (knowledge / "telemetry-analyst").mkdir(parents=True)
+    (knowledge / "cluster-investigator" / "playbook.md").write_text(
+        "# Cluster playbook\n\nCheck the Service selector and EndpointSlices.\n"
+    )
+    (knowledge / "telemetry-analyst" / "playbook.md").write_text(
+        "# Telemetry playbook\n\nRead logs and metrics with bounded ranges.\n"
+    )
     index = tmp_path / "k8s-docs" / "docs.sqlite3"
-    stats = build_index(source, index)
+    stats = build_index(source, index, extra=((knowledge, "knowledge"),))
     return index, stats
 
 
@@ -53,7 +62,7 @@ def test_parse_document_strips_front_matter_and_shortcodes():
 
 def test_build_and_search_docs(tmp_path):
     index, stats = make_docs(tmp_path)
-    assert stats["documents"] == 2
+    assert stats["documents"] == 4
     results = search_docs(tmp_path, "service has no endpoints")
     assert results
     assert results[0]["url"].startswith("https://kubernetes.io/docs/")
@@ -62,6 +71,20 @@ def test_build_and_search_docs(tmp_path):
 
 def test_search_without_an_index_returns_nothing(tmp_path):
     assert search_docs(tmp_path, "readiness probe") == []
+
+
+def test_role_knowledge_is_scoped_and_cited(tmp_path):
+    make_docs(tmp_path)
+    cluster = search_docs(tmp_path, "endpointslices", 5, agent="cluster-investigator")
+    telemetry = search_docs(tmp_path, "logs metrics", 5, agent="telemetry-analyst")
+    assert any(r["path"].startswith("knowledge/cluster-investigator/") for r in cluster)
+    assert not any(r["path"].startswith("knowledge/telemetry-analyst/") for r in cluster)
+    assert any(r["path"].startswith("knowledge/telemetry-analyst/") for r in telemetry)
+    assert not any(r["path"].startswith("knowledge/cluster-investigator/") for r in telemetry)
+    knowledge_hits = [r for r in cluster if r["path"].startswith("knowledge/")]
+    assert knowledge_hits[0]["url"].startswith("knowledge/cluster-investigator/")
+    global_hits = search_docs(tmp_path, "readiness probe", 5)
+    assert all(not r["path"].startswith("knowledge/") for r in global_hits)
 
 
 def configure(monkeypatch, tmp_path, index):

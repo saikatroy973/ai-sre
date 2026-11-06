@@ -142,8 +142,8 @@ deployments, services, endpoints, jobs, events) and reports concrete findings:
 
 It links a scaled-to-zero deployment to the service that lost its endpoints, so
 the commander answers with a root cause and a recommended first action instead of
-asking for a scope. Replies also cite one Kubernetes documentation URL from the
-local `kube_investigator_docs` index. A namespace named in the message scopes the audit (for
+asking for a scope. Replies also cite one `Knowledge:` playbook or
+`K8s reference:` URL from the role-scoped `kube_investigator_docs` index. A namespace named in the message scopes the audit (for
 example `simple-devops`); otherwise it audits the whole cluster. On this cluster
 it reports: `simple-devops` deployment at 0 replicas, its Service with no
 endpoints, and historical restarts in `imesh-demo`.

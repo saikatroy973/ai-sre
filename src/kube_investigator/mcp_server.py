@@ -554,7 +554,12 @@ def kube_investigator_docs(query: str, limit: int = 5) -> dict[str, Any]:
             error=result["error"],
             **audit_fields,
         )
-    results = search_docs(settings.data_dir, query[:500], min(max(int(limit), 1), 10))
+    results = search_docs(
+        settings.data_dir,
+        query[:500],
+        min(max(int(limit), 1), 10),
+        agent=actor,
+    )
     return _audited_result(
         settings,
         tool="docs",

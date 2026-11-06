@@ -271,25 +271,31 @@ also caps a token's `tools` claim, so the effective grant is the intersection. `
 a liveness probe but exposes only `ok`, version, and read-only status unless authentication is
 configured and passes (in unauthenticated development mode it also reports the configured scope).
 
-**Kubernetes documentation for the cluster investigator.** The
-`kube_investigator_docs` tool searches the upstream English Kubernetes
-documentation (the `content/en/docs` tree from `kubernetes/website`, CC BY 4.0)
-indexed locally into SQLite FTS5. Like every other tool it requires the actor
-token, is actor-audited, and is limited to the `docs` claim — only
-`cluster-investigator` receives it. The index lives outside the repository:
+**Kubernetes and SRE knowledge for every agent.** The `kube_investigator_docs`
+tool searches the upstream English Kubernetes documentation (the
+`content/en/docs` tree from `kubernetes/website`, CC BY 4.0) plus a
+**per-agent SRE playbook** under `knowledge/<agent>/playbook.md` (incident
+command, Kubernetes triage, telemetry, change correlation, incident memory,
+evidence verification; sources linked in each file). Each agent's token carries
+the `docs` claim, and the tool scopes search by the signed actor: an agent sees
+the Kubernetes docs and **its own** playbook, never another role's. Like every
+tool it requires the actor token and is actor-audited. The index lives outside
+the repository:
 
 ```sh
 git clone --depth 1 --filter=blob:none --sparse \
   https://github.com/kubernetes/website .data/k8s-docs/src
 git -C .data/k8s-docs/src sparse-checkout set content/en/docs
-python scripts/index_kubernetes_docs.py    # 1,722 documents -> ~21k passages
+python scripts/index_kubernetes_docs.py    # 1,728 documents -> ~21.4k passages
 ```
 
 `kube_investigator_docs(query, limit=5)` returns cited passages with
 `https://kubernetes.io/docs/...` URLs; an unbuilt index is reported, never
 faked. Set `INVESTIGATOR_DOCS_INDEX` to point at a different index. The
 cluster-investigator instructions tell it to search by failure signature (for
-example “service has no endpoints”) and cite the URL in the evidence summary.
+example “service has no endpoints”) and cite the URL in the evidence summary;
+the Mattermost responder appends a `Knowledge:` or `K8s reference:` citation to
+every role's reply.
 
 **Token expiry and rotation.** Tokens expire after 14 days by default. `switch console status`
 reports each agent's wiring, signed tool claim, and `expires_at`/`expires_in_seconds`; within seven

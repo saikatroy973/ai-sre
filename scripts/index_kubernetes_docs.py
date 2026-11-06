@@ -30,11 +30,21 @@ def main() -> int:
     parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE)
     parser.add_argument("--index", type=Path, default=None)
     parser.add_argument("--data-dir", type=Path, default=REPO / ".data")
+    parser.add_argument(
+        "--knowledge",
+        type=Path,
+        default=REPO / "knowledge",
+        help="per-agent SRE knowledge root (indexed as knowledge/<agent>/...)",
+    )
     args = parser.parse_args()
 
     index = args.index or index_path(args.data_dir)
     started = time.perf_counter()
-    stats = build_index(args.source, index)
+    stats = build_index(
+        args.source,
+        index,
+        extra=((args.knowledge, "knowledge"),) if args.knowledge.is_dir() else (),
+    )
     elapsed = time.perf_counter() - started
     size = index.stat().st_size / 1e6
     print(

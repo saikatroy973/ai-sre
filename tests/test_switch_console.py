@@ -478,7 +478,7 @@ def test_console_status_reports_token_wiring_tools_and_expiry(tmp_path, monkeypa
     auth = payload["agent_auth"]["memory-researcher"]
     assert auth["wiring"] == "per-agent token"
     assert auth["actor"] == "memory-researcher"
-    assert auth["tools"] == ["memory"]
+    assert auth["tools"] == ["docs", "memory"]
     assert auth["expires_at"]
     assert auth["expires_in_seconds"] > 0
     assert {item["definition"]["isolation"] for item in payload["agents"]} == {"isolated"}

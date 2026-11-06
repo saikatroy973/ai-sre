@@ -312,17 +312,17 @@ def deployment_history(context: str, namespace: str | None) -> list[str]:
     return lines[:8]
 
 
-def docs_reference(data_dir: Path, audit: dict) -> str:
-    """Return one cited Kubernetes doc passage for the audit's findings."""
+def docs_reference(data_dir: Path, audit: dict, agent: str, body: str = "") -> str:
+    """Return one cited knowledge passage for the question and its findings."""
     query = (
-        " ".join(finding["title"] for finding in audit["findings"][:3])
-        or "kubernetes troubleshooting"
-    )
-    results = search_docs(data_dir, query, 1)
+        body + " " + " ".join(finding["title"] for finding in audit["findings"][:3])
+    ).strip() or "kubernetes troubleshooting"
+    results = search_docs(data_dir, query, 1, agent=agent)
     if not results:
         return ""
     result = results[0]
-    return f" K8s reference: {result['title']} - {result['url']}"
+    label = "Knowledge" if result["path"].startswith("knowledge/") else "K8s reference"
+    return f" {label}: {result['title']} - {result['url']}"
 
 
 def memory_facts(data_dir: Path) -> str:
@@ -413,7 +413,7 @@ def deterministic_reply(
                 f"{cause_text}{action} Plan: cluster-investigator owns the service/pod "
                 "evidence, change-analyst checks the rollout history, evidence-verifier "
                 "re-runs the proof, memory checks prior incidents."
-                + docs_reference(data_dir, audit)
+                + docs_reference(data_dir, audit, agent, body)
             )
         return (
             f"@{sender} I audited {scope}: {audit['nodes']}, {audit['pods']}, "
@@ -436,7 +436,7 @@ def deterministic_reply(
                 + f"@{sender} live read of {scope}: {audit['nodes']}, {audit['pods']}. "
                 + " ".join(findings_lines(audit))
                 + cause_text
-                + docs_reference(data_dir, audit)
+                + docs_reference(data_dir, audit, agent, body)
             )
         return (
             f"@{sender} live read of {scope}: {audit['nodes']}, {audit['pods']}, "
@@ -454,17 +454,20 @@ def deterministic_reply(
         return (
             f"@{sender} change view for {scope}: {audit['deployments']} deployments; {tail} "
             "Repeated restarts line up with the node pause, not with a current rollout."
+            + docs_reference(data_dir, audit, agent, body)
         )
     if agent == "telemetry-analyst":
         return (
             f"@{sender} no metrics or log source is configured, so I cannot correlate telemetry. "
             f"The live Kubernetes state shows {len(findings)} finding(s); "
             "cluster-investigator owns that evidence."
+            + docs_reference(data_dir, audit, agent, body)
         )
     if agent == "memory-researcher":
         return (
             f"@{sender} {memory_facts(data_dir)} "
             "Ask with a cluster/namespace to retrieve matching leads."
+            + docs_reference(data_dir, audit, agent, body)
         )
     fresh = collect(context, namespace, set(audit.get("namespaces") or []))
     titles = "; ".join(finding["title"] for finding in fresh["findings"][:4]) or "none"
@@ -472,6 +475,7 @@ def deterministic_reply(
         f"@{sender} I re-ran the checks independently over {scope}: "
         f"{fresh['nodes']}, {fresh['pods']}, {len(fresh['findings'])} finding(s) ({titles}). "
         "Evidence is from live read-only API reads at this moment; no mutation performed."
+        + docs_reference(data_dir, audit, agent, body)
     )
 
 

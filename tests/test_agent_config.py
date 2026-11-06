@@ -262,12 +262,12 @@ def test_tokens_carry_role_specific_tool_claims(wired):
 
     _data_dir, _auth_dir, directories = wired
     expected = {
-        "incident-commander": {"run", "get", "verify", "memory", "source_status"},
-        "cluster-investigator": {"docs", "get", "verify", "source_status"},
-        "telemetry-analyst": {"get", "source_status"},
-        "change-analyst": {"get", "source_status"},
-        "memory-researcher": {"memory"},
-        "evidence-verifier": {"get", "verify"},
+        "incident-commander": {"docs", "get", "memory", "run", "source_status", "verify"},
+        "cluster-investigator": {"docs", "get", "source_status", "verify"},
+        "telemetry-analyst": {"docs", "get", "source_status"},
+        "change-analyst": {"docs", "get", "source_status"},
+        "memory-researcher": {"docs", "memory"},
+        "evidence-verifier": {"docs", "get", "verify"},
     }
     for name, directory in directories.items():
         environment = load_config_environment(directory / "opencode.json")

@@ -38,12 +38,12 @@ from kube_investigator.config import Settings
 # exposes only non-sensitive data when unauthenticated.
 AUTHENTICATED_TOOLS = frozenset({"run", "get", "verify", "memory", "source_status", "docs"})
 ROLE_TOOL_GRANTS: dict[str, tuple[str, ...]] = {
-    "incident-commander": ("run", "get", "verify", "memory", "source_status"),
-    "cluster-investigator": ("docs", "get", "verify", "source_status"),
-    "telemetry-analyst": ("get", "source_status"),
-    "change-analyst": ("get", "source_status"),
-    "memory-researcher": ("memory",),
-    "evidence-verifier": ("get", "verify"),
+    "incident-commander": ("docs", "get", "memory", "run", "source_status", "verify"),
+    "cluster-investigator": ("docs", "get", "source_status", "verify"),
+    "telemetry-analyst": ("docs", "get", "source_status"),
+    "change-analyst": ("docs", "get", "source_status"),
+    "memory-researcher": ("docs", "memory"),
+    "evidence-verifier": ("docs", "get", "verify"),
 }
 _TOOL_PREFIX = "kube_investigator_"
 

@@ -31,12 +31,62 @@ _WORD = re.compile(r"[A-Za-z][A-Za-z0-9_-]+")
 # Words too common to narrow an FTS query.
 _STOPWORDS = frozenset(
     {
-        "the", "and", "for", "with", "that", "this", "from", "are", "was", "were",
-        "you", "your", "can", "not", "but", "has", "have", "had", "its", "into",
-        "when", "why", "how", "what", "which", "who", "will", "would", "should",
-        "may", "might", "must", "does", "did", "doing", "been", "being", "about",
-        "there", "their", "then", "than", "them", "these", "those", "use", "used",
-        "using", "one", "two", "also", "any", "all", "each", "more", "most",
+        "the",
+        "and",
+        "for",
+        "with",
+        "that",
+        "this",
+        "from",
+        "are",
+        "was",
+        "were",
+        "you",
+        "your",
+        "can",
+        "not",
+        "but",
+        "has",
+        "have",
+        "had",
+        "its",
+        "into",
+        "when",
+        "why",
+        "how",
+        "what",
+        "which",
+        "who",
+        "will",
+        "would",
+        "should",
+        "may",
+        "might",
+        "must",
+        "does",
+        "did",
+        "doing",
+        "been",
+        "being",
+        "about",
+        "there",
+        "their",
+        "then",
+        "than",
+        "them",
+        "these",
+        "those",
+        "use",
+        "used",
+        "using",
+        "one",
+        "two",
+        "also",
+        "any",
+        "all",
+        "each",
+        "more",
+        "most",
     }
 )
 
@@ -144,8 +194,47 @@ CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
 """
 
 
-def build_index(source: Path, index: Path, *, reset: bool = True) -> dict[str, int]:
-    """Index every Markdown file under ``source`` into an FTS5 database."""
+def _index_root(
+    connection: sqlite3.Connection, root: Path, prefix: str, *, internal_url: bool
+) -> tuple[int, int]:
+    documents = 0
+    rows = 0
+    for path in sorted(root.rglob("*.md")):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        title, sections = parse_document(text)
+        relative = path.relative_to(root)
+        stored = f"{prefix}/{relative}" if prefix else str(relative)
+        if internal_url:
+            url = stored
+        else:
+            url = _url_for(relative, "")
+        for heading, body in sections:
+            for piece in _chunks(body):
+                connection.execute(
+                    "INSERT INTO chunks (path, title, heading, body, url) VALUES (?,?,?,?,?)",
+                    (stored, title, heading, piece, url),
+                )
+                rows += 1
+        documents += 1
+    return documents, rows
+
+
+def build_index(
+    source: Path,
+    index: Path,
+    *,
+    reset: bool = True,
+    extra: tuple[tuple[Path, str], ...] = (),
+) -> dict[str, int]:
+    """Index every Markdown file under ``source`` (plus ``extra`` roots) into FTS5.
+
+    ``extra`` entries are ``(root, prefix)``: files are stored as
+    ``<prefix>/<relative path>`` and get an internal ``knowledge/...`` URL, while
+    the main source keeps its ``kubernetes.io`` URL.
+    """
     if not source.is_dir():
         raise FileNotFoundError(f"no Kubernetes docs source at {source}")
     index.parent.mkdir(parents=True, exist_ok=True)
@@ -154,29 +243,13 @@ def build_index(source: Path, index: Path, *, reset: bool = True) -> dict[str, i
     connection = sqlite3.connect(index)
     try:
         connection.executescript(SCHEMA)
-        documents = 0
-        rows = 0
-        for path in sorted(source.rglob("*.md")):
-            try:
-                text = path.read_text(encoding="utf-8")
-            except (OSError, UnicodeDecodeError):
+        documents, rows = _index_root(connection, source, "", internal_url=False)
+        for root, prefix in extra:
+            if not root.is_dir():
                 continue
-            title, sections = parse_document(text)
-            relative = path.relative_to(source)
-            documents += 1
-            for heading, body in sections:
-                for piece in _chunks(body):
-                    connection.execute(
-                        "INSERT INTO chunks (path, title, heading, body, url) VALUES (?,?,?,?,?)",
-                        (
-                            str(relative),
-                            title,
-                            heading,
-                            piece,
-                            _url_for(relative, heading),
-                        ),
-                    )
-                    rows += 1
+            more_documents, more_rows = _index_root(connection, root, prefix, internal_url=True)
+            documents += more_documents
+            rows += more_rows
         connection.execute("INSERT INTO chunks_fts(chunks_fts) VALUES ('rebuild')")
         connection.commit()
         return {"documents": documents, "chunks": rows}
@@ -184,8 +257,15 @@ def build_index(source: Path, index: Path, *, reset: bool = True) -> dict[str, i
         connection.close()
 
 
-def search_docs(data_dir: Path, query: str, limit: int = 5) -> list[dict[str, str]]:
-    """Return up to ``limit`` documentation passages for ``query`` (read-only)."""
+def search_docs(
+    data_dir: Path, query: str, limit: int = 5, *, agent: str | None = None
+) -> list[dict[str, str]]:
+    """Return up to ``limit`` documentation passages for ``query`` (read-only).
+
+    With ``agent`` set, role knowledge under ``knowledge/<agent>/`` is included
+    (and boosted) while other roles' knowledge is excluded; the Kubernetes docs
+    are always searchable.
+    """
     path = index_path(data_dir)
     if not path.is_file():
         return []
@@ -194,27 +274,37 @@ def search_docs(data_dir: Path, query: str, limit: int = 5) -> list[dict[str, st
     if not terms:
         return []
     limit = max(1, min(int(limit), 10))
+    agent_filter = f"knowledge/{agent}/%" if agent else None
+    scope_sql = (
+        "AND (chunks.path NOT LIKE 'knowledge/%' OR chunks.path LIKE ?)"
+        if agent_filter
+        else "AND chunks.path NOT LIKE 'knowledge/%'"
+    )
+    prefer_sql = (
+        "WHEN chunks.path LIKE ? THEN 2.0 WHEN chunks.path LIKE 'knowledge/%' THEN 1.0"
+        if agent_filter
+        else "WHEN chunks.path LIKE 'knowledge/%' THEN 1.0"
+    )
     connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     try:
         for operator in (" AND ", " OR "):
             expression = operator.join(f'"{term}"' for term in terms)
+            parameters: list[object] = [expression]
+            if agent_filter:
+                parameters.extend([agent_filter, agent_filter])
+            parameters.append(limit)
+            sql = f"""
+                SELECT chunks.title, chunks.heading, chunks.url, chunks.path,
+                       snippet(chunks_fts, 2, '[', ']', ' ... ', 24) AS passage
+                FROM chunks_fts
+                JOIN chunks ON chunks.id = chunks_fts.rowid
+                WHERE chunks_fts MATCH ?
+                {scope_sql}
+                ORDER BY bm25(chunks_fts) - CASE {prefer_sql} ELSE 0.0 END
+                LIMIT ?
+            """
             try:
-                rows = connection.execute(
-                    """
-                    SELECT chunks.title, chunks.heading, chunks.url,
-                           snippet(chunks_fts, 2, '[', ']', ' ... ', 24) AS passage
-                    FROM chunks_fts
-                    JOIN chunks ON chunks.id = chunks_fts.rowid
-                    WHERE chunks_fts MATCH ?
-                    ORDER BY bm25(chunks_fts) - CASE
-                        WHEN chunks.path LIKE 'concepts/%'
-                          OR chunks.path LIKE 'tasks/%' THEN 1.0
-                        ELSE 0.0
-                    END
-                    LIMIT ?
-                    """,
-                    (expression, limit),
-                ).fetchall()
+                rows = connection.execute(sql, parameters).fetchall()
             except sqlite3.Error:
                 rows = []
             if rows:
@@ -223,9 +313,10 @@ def search_docs(data_dir: Path, query: str, limit: int = 5) -> list[dict[str, st
                         "title": str(title),
                         "heading": str(heading),
                         "url": str(url),
+                        "path": str(path),
                         "passage": " ".join(str(passage).split()),
                     }
-                    for title, heading, url, passage in rows
+                    for title, heading, url, path, passage in rows
                 ]
         return []
     finally:
