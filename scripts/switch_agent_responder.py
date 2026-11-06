@@ -391,7 +391,11 @@ def deployment_history(context: str, namespace: str | None) -> list[str]:
 
 def knowledge_snippet(data_dir: Path, query: str, agent: str) -> dict[str, str] | None:
     """Return the best knowledge passage for a question, if one matches."""
-    results = search_docs(data_dir, query, 1, agent=agent)
+    results = [
+        item
+        for item in search_docs(data_dir, query, 4, agent=agent)
+        if not str(item.get("heading") or "").lower().startswith(("source", "reference"))
+    ]
     if not results:
         return None
     result = results[0]
@@ -419,6 +423,20 @@ def docs_reference(data_dir: Path, audit: dict, agent: str, body: str = "") -> s
     result = results[0]
     label = "Knowledge" if result["path"].startswith("knowledge/") else "K8s reference"
     return f" {label}: {result['title']} - {result['url']}"
+
+
+def telemetry_query(body: str) -> str:
+    """Turn an observability question into terms that select the right section."""
+    low = body.lower()
+    if any(word in low for word in ("signal", "latenc", "golden", "sli", "slo", "red", "use")):
+        return "golden signals latency traffic errors saturation"
+    if any(word in low for word in ("log", "logql", "loki")):
+        return "logs logql query labels time range"
+    if any(word in low for word in ("metric", "promql", "prometheus", "counter", "histogram")):
+        return "metrics promql counters gauges histograms querying"
+    if any(word in low for word in ("alert", "page", "paging", "burn")):
+        return "alerting symptoms slo burn rate paging"
+    return body
 
 
 def knowledge_suffix(data_dir: Path, body: str, agent: str) -> str:
@@ -593,11 +611,20 @@ def deterministic_reply(
             )
         )
     if agent == "telemetry-analyst":
-        snippet = knowledge_snippet(data_dir, body or "telemetry signals", agent)
+        if re.search(
+            r"\b(access|configured|available|do you have|can you (read|see|query))\b", body, re.I
+        ):
+            return (
+                f"@{sender} no - I have no log or metric access in this deployment. "
+                "`source_status(telemetry)` reports configured=false, and no Loki, "
+                "Prometheus, or OTLP endpoint is wired. Configure a telemetry source and "
+                "I can query logs/metrics/traces within bounded time ranges."
+            )
+        snippet = knowledge_snippet(data_dir, telemetry_query(body), agent)
         if snippet is not None:
             return (
-                f"@{sender} I have no live metrics or log source configured, so I cannot read "
-                "current telemetry. Guidance from the observability playbook: "
+                f"@{sender} I have no live metrics or log source configured, so I cannot "
+                "read current telemetry. Guidance from the observability playbook: "
                 f"{snippet['passage']} "
                 f"Source: {snippet['title']} - {snippet['url']}"
             )
