@@ -1,0 +1,35 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "ai-sre": {
+      "command": [
+        "<REPO>/.venv/bin/python",
+        "-m",
+        "ai_sre.mcp_server"
+      ],
+      "enabled": true,
+      "environment": {
+        "AI_SRE_BACKEND": "kubernetes",
+        "AI_SRE_CLUSTER": "kind-imesh",
+        "AI_SRE_DATA_DIR": "<REPO>/.data",
+        "AI_SRE_KUBE_CONTEXT": "kind-imesh",
+        "AI_SRE_MCP_ACTOR": "change-analyst",
+        "AI_SRE_MCP_ACTOR_TOKEN": "<ACTOR_TOKEN>",
+        "AI_SRE_MCP_PUBLIC_KEY": "<PUBLIC_KEY>",
+        "AI_SRE_NAMESPACES": "imesh-demo,simple-devops",
+        "AI_SRE_TENANT": "local"
+      },
+      "type": "local"
+    }
+  },
+  "permission": {
+    "ai-sre_": "allow",
+    "ai-sre_ai_sre_docs": "allow",
+    "ai-sre_ai_sre_get": "allow",
+    "ai-sre_ai_sre_health": "allow",
+    "ai-sre_ai_sre_memory": "allow",
+    "ai-sre_ai_sre_run": "allow",
+    "ai-sre_ai_sre_source_status": "allow",
+    "ai-sre_ai_sre_verify": "allow"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "agents": {
+    "change-analyst": {
+      "agent_id": "5e85ae51-004c-4183-b44b-e9d358b7d7a6",
+      "api_key": "<AGENT_API_KEY>"
+    },
+    "cluster-investigator": {
+      "agent_id": "6b358b3f-5c9a-401b-8b08-97c8dfd812f6",
+      "api_key": "<AGENT_API_KEY>"
+    },
+    "evidence-verifier": {
+      "agent_id": "e3a3c0ac-922b-4221-9c6a-1224fa1bf3d7",
+      "api_key": "<AGENT_API_KEY>"
+    },
+    "incident-commander": {
+      "agent_id": "cb83f712-8639-41bd-b39f-0a991bb26c57",
+      "api_key": "<AGENT_API_KEY>"
+    },
+    "memory-researcher": {
+      "agent_id": "b2019ce9-6f92-4468-9f27-385ab5bbfa9a",
+      "api_key": "<AGENT_API_KEY>"
+    },
+    "telemetry-analyst": {
+      "agent_id": "9547b191-b5fa-49b4-b837-b169c8a7f363",
+      "api_key": "<AGENT_API_KEY>"
+    }
+  },
+  "base_url": "http://127.0.0.1:18000",
+  "version": 1
+}
