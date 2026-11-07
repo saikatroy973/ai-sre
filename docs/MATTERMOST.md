@@ -1,7 +1,7 @@
 # Mattermost server for the six agents
 
 Mattermost is installed as part of the self-hosted Switch stack and is running on
-this Mac. The six Kubernetes Investigator agents are registered as Mattermost bot
+this Mac. The six AI SRE agents are registered as Mattermost bot
 users, are members of the core channels, and every Switch room is bridged to a
 Mattermost channel in both directions.
 

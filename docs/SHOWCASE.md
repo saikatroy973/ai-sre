@@ -1,4 +1,4 @@
-# Showcase: the Kubernetes Investigator on Switch Console
+# Showcase: AI SRE on Switch Console
 
 Video walkthrough: [`docs/media/showcase.mp4`](media/showcase.mp4) (2:15, narrated) —
 Console, the self-hosted Switch stack, memory, the Trust CLI, Trust/ROI, audit,

@@ -2,7 +2,7 @@
 
 **Date:** 2026-11-04
 **Scope:** the live `gpt-6-luna` model discovered from the `kube-investigator-otel` LangChain/OpenTelemetry traffic.
-**Decision owner:** Kubernetes Investigator team. This is a technical review, not a formal risk acceptance.
+**Decision owner:** AI SRE team. This is a technical review, not a formal risk acceptance.
 
 ## Finding
 

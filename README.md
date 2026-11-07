@@ -1,8 +1,12 @@
-# Kubernetes Investigator
+# AI SRE
 
-An evidence-backed Kubernetes investigation team running in **Switch rooms**:
+An evidence-backed Kubernetes investigation team running in **Switch rooms** as **AI SRE**:
 `incident-commander`, `cluster-investigator`, `telemetry-analyst`, `change-analyst`,
 `memory-researcher`, and `evidence-verifier`.
+
+The product name is **AI SRE**; the CLI, Python package, MCP tool prefix and
+environment variables keep their historical `kube-investigator` / `INVESTIGATOR_*`
+names for compatibility.
 
 This is a hackathon implementation of the Day-2 plan, **not a production-ready deployment**.
 Switch is mandatory for investigation runs: each incident gets its own Switch room, every

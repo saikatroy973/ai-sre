@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "kube-investigator"
 version = "0.1.0"
-description = "Evidence-backed, read-only multi-agent Kubernetes investigations"
+description = "AI SRE: evidence-backed, read-only multi-agent Kubernetes investigations"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

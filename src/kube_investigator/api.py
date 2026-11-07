@@ -74,7 +74,7 @@ def create_app(settings: Settings | None = None, coordinator: Coordinator | None
             service.close()
 
     app = FastAPI(
-        title="Kubernetes Investigator",
+        title="AI SRE",
         lifespan=lifespan,
         docs_url=None,
         redoc_url=None,

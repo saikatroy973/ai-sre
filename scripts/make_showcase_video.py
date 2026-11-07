@@ -178,13 +178,13 @@ def scene_plan() -> list[Scene]:
         Scene(
             label="00 / INTRO",
             kind="title",
-            title="Kubernetes Investigator",
+            title="AI SRE",
             subtitle=[
                 "An evidence-backed incident team on Switch Console.",
                 "Six agents - one Switch room per incident - evidence or abstain.",
             ],
             narration=(
-                "The Kubernetes Investigator is a six agent incident response team that runs "
+                "AI SRE is a six agent incident response team that runs "
                 "inside Switch Console. Every incident gets its own Switch room, and every "
                 "conclusion is backed by evidence, or the team abstains."
             ),
