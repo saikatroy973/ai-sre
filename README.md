@@ -51,10 +51,9 @@ decide whether a diagnosis was supported.
 
 ## Switch Console quick start (mandatory live path)
 
-For a scripted, ~8-minute end-to-end demo (setup, incident, guardrails,
-troubleshooting, fallbacks), see [docs/SHOWCASE.md](docs/SHOWCASE.md). The local
-Mattermost server, the six agent bots, and the room/channel bridge are documented
-in [docs/MATTERMOST.md](docs/MATTERMOST.md).
+For the end-to-end walkthrough see [docs/SWITCH_TOUR.md](docs/SWITCH_TOUR.md); the
+local Mattermost server, the six agent bots, and the room/channel bridge are
+documented in [docs/MATTERMOST.md](docs/MATTERMOST.md).
 
 Live investigations run through **Switch Console** on a Console-managed local server. The six
 agents are Console-managed OpenCode agents; Switch supplies their room tools, and this repository
@@ -815,9 +814,9 @@ ruff format --check .
 Tests use fixtures, an in-memory Switch runtime, and mock HTTP transports; they do not access a
 cluster, Scale, or a live Switch server. The GitHub Actions `Tests` workflow
 [run 41967118414](https://github.com/saikatroy973/ai-sre/actions/runs/41967118414)
-passed on Python 3.11, 3.13, and 3.14 for commit `bfe1c1d`; the local suite is 259 tests. See
-`docs/BUILD_PLAN.md` for the implementation sequence and `docs/SWITCH_NATIVE_PLAN.md` for the gap
-audit (2–11) and remaining production gates.
+passed on Python 3.11, 3.13, and 3.14 for commit `bfe1c1d`; the local suite is 344 tests. See
+`docs/SWITCH_NATIVE_PLAN.md` for the implementation sequence, gap audit (2–11) and remaining
+production gates.
 
 ## Reliability drill and hardening
 
@@ -862,6 +861,6 @@ Hardening you should wire before showing the agent to anyone else:
   capability-less, network-less MCP container, stages a real completed investigation as a
   0444 read-only snapshot, and gates five probes (`uid-isolation`, `filesystem-isolation`,
   `network-isolation`, `mcp-stdio-handshake`, `evidence-store`); details and limits:
-  `docs/OS_ISOLATION.md`. The same gate runs as the `isolation` CI job on every push.
+  `deploy/mcp-container/verify.sh`. The same gate runs as the `isolation` CI job on every push.
 - **Pinned supply chain.** GitHub Actions are pinned to commit SHAs, the MCP base image is
   pinned by digest, and `.github/dependabot.yml` covers Actions, pip, and Docker updates.

@@ -3,10 +3,9 @@
 The hackathon rule is "Switch is the system of record" at every layer. This is
 the surface-by-surface tour with the exact commands, what the audience should
 see, and the current live status. Companion docs:
-[`SHOWCASE.md`](SHOWCASE.md) (8-minute Console runbook),
 [`MATTERMOST.md`](MATTERMOST.md) (local Mattermost server with the six agents),
 [`SWITCH_NATIVE_PLAN.md`](SWITCH_NATIVE_PLAN.md) (the mandatory matrix and the
-honesty contract).
+honesty contract), and [`TRUST_MODEL_REVIEW.md`](TRUST_MODEL_REVIEW.md).
 
 **Current status (2026-11-05):** Console, rooms, memory, MCP tool surface, audit
 and the isolation gate are live and demo-ready. Switch Trust (hosted) and ROI
