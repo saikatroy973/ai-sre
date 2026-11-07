@@ -53,8 +53,7 @@ def test_staging_records_the_snapshot_digest(tmp_path):
     )
     snapshot = evidence / "investigator.sqlite3"
     assert (
-        values["AI_SRE_EVIDENCE_PROBE_SHA256"]
-        == hashlib.sha256(snapshot.read_bytes()).hexdigest()
+        values["AI_SRE_EVIDENCE_PROBE_SHA256"] == hashlib.sha256(snapshot.read_bytes()).hexdigest()
     )
     assert snapshot.stat().st_mode & 0o777 == 0o444
 

@@ -479,9 +479,7 @@ def test_mcp_protocol_memory_schema_and_tenant_contract(monkeypatch, tmp_path):
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 tools = await session.list_tools()
-                memory = next(
-                    tool for tool in tools.tools if tool.name == "ai_sre_memory"
-                )
+                memory = next(tool for tool in tools.tools if tool.name == "ai_sre_memory")
                 schema = memory.inputSchema
                 assert schema["properties"]["tenant"]["default"] is None
                 assert "tenant" not in schema["required"]

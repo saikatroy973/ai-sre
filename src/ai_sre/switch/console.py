@@ -102,9 +102,7 @@ class ConsoleSettings:
         try:
             timeout = float(raw_timeout)
         except ValueError as exc:
-            raise ConfigurationError(
-                "AI_SRE_CONSOLE_TIMEOUT_SECONDS must be a number"
-            ) from exc
+            raise ConfigurationError("AI_SRE_CONSOLE_TIMEOUT_SECONDS must be a number") from exc
         return cls(
             server_url=server_url,
             email=email,

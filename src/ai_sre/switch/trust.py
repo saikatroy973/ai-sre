@@ -121,9 +121,7 @@ class TrustSettings:
         api_key = os.getenv("AI_SRE_TRUST_API_KEY")
         if not api_key:
             if required:
-                raise ConfigurationError(
-                    "Switch Trust is not configured; set AI_SRE_TRUST_API_KEY"
-                )
+                raise ConfigurationError("Switch Trust is not configured; set AI_SRE_TRUST_API_KEY")
             return None
         raw_timeout = os.getenv("AI_SRE_TRUST_TIMEOUT_SECONDS", "15")
         try:

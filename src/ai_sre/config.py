@@ -162,9 +162,7 @@ class Settings:
                 "AI_SRE_SWITCH_REQUEST_TIMEOUT_SECONDS", 10.0
             ),
             switch_memory_max_records=_env_int("AI_SRE_SWITCH_MEMORY_MAX_RECORDS", 5),
-            switch_memory_default_expiry_days=_env_int(
-                "AI_SRE_SWITCH_MEMORY_EXPIRY_DAYS", 180
-            ),
+            switch_memory_default_expiry_days=_env_int("AI_SRE_SWITCH_MEMORY_EXPIRY_DAYS", 180),
             switch_room_history_limit=_env_int("AI_SRE_SWITCH_ROOM_HISTORY_LIMIT", 100),
         )
 

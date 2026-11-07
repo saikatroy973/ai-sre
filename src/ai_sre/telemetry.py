@@ -47,9 +47,7 @@ def configure_tracing(service_name: str | None = None) -> bool:
     provider = TracerProvider(
         resource=Resource.create(
             {
-                "service.name": service_name
-                or os.getenv("OTEL_SERVICE_NAME")
-                or "ai-sre",
+                "service.name": service_name or os.getenv("OTEL_SERVICE_NAME") or "ai-sre",
             }
         )
     )

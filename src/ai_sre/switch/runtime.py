@@ -96,9 +96,7 @@ class HttpSwitchRuntime:
     @classmethod
     def bootstrap_from_settings(cls, settings: Settings) -> HttpSwitchRuntime:
         if not settings.switch_registration_token:
-            raise ConfigurationError(
-                "Switch bootstrap requires AI_SRE_SWITCH_REGISTRATION_TOKEN"
-            )
+            raise ConfigurationError("Switch bootstrap requires AI_SRE_SWITCH_REGISTRATION_TOKEN")
         client = SwitchClient(
             settings.switch_base_url,
             {},

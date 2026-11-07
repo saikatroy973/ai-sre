@@ -496,9 +496,7 @@ def test_console_status_reports_expired_and_invalid_tokens(tmp_path, monkeypatch
     agents_root = tmp_path / ".data" / "console-agents"
     corrupt_path = agents_root / "change-analyst" / "opencode.json"
     corrupt = json.loads(corrupt_path.read_text())
-    corrupt["mcp"]["ai-sre"]["environment"]["AI_SRE_MCP_ACTOR_TOKEN"] = (
-        "not.a.token"
-    )
+    corrupt["mcp"]["ai-sre"]["environment"]["AI_SRE_MCP_ACTOR_TOKEN"] = "not.a.token"
     corrupt_path.write_text(json.dumps(corrupt))
 
     private_key = tmp_path / ".data" / "mcp-auth" / PRIVATE_KEY_NAME
