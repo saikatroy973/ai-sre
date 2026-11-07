@@ -21,7 +21,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.3,<10", "ruff>=0.11,<1"]
-kubernetes = ["kubernetes>=32,<36"]
+kubernetes = ["kubernetes>=32,<38"]
 semantic = ["model2vec>=0.3,<1"]
 otel = [
   "opentelemetry-sdk>=1.30,<2",
