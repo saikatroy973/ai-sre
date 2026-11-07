@@ -1,4 +1,4 @@
-from kube_investigator.telemetry import configure_tracing, span
+from ai_sre.telemetry import configure_tracing, span
 
 
 def test_tracing_is_optional_without_an_exporter(monkeypatch):

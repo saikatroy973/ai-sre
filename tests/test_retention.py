@@ -4,12 +4,12 @@ import json
 import os
 from datetime import timedelta
 
-from kube_investigator.auth import Principal
-from kube_investigator.collectors import FixtureCollector
-from kube_investigator.config import Settings
-from kube_investigator.models import Investigation, InvestigationRequest, Scope, utc_now
-from kube_investigator.retention import prune
-from kube_investigator.storage import Store
+from ai_sre.auth import Principal
+from ai_sre.collectors import FixtureCollector
+from ai_sre.config import Settings
+from ai_sre.models import Investigation, InvestigationRequest, Scope, utc_now
+from ai_sre.retention import prune
+from ai_sre.storage import Store
 
 
 def _old_investigation(settings, *, days=400, state="reported"):
@@ -46,7 +46,7 @@ def test_prune_removes_old_investigations_queue_rows_and_audit_archives(tmp_path
             ((utc_now() - timedelta(days=400)).isoformat(), str(job_id)),
         )
 
-    from kube_investigator.audit import append_audit
+    from ai_sre.audit import append_audit
 
     assert append_audit(settings.data_dir, "tool-audit", {"tool": "get"})
     archive = settings.data_dir / "tool-audit.20260101T000000000000Z.dead.jsonl"
@@ -77,7 +77,7 @@ def test_prune_removes_old_investigations_queue_rows_and_audit_archives(tmp_path
 
 
 def test_prune_cli_reports_dry_run(tmp_path, capsys):
-    from kube_investigator.cli import main
+    from ai_sre.cli import main
 
     settings = Settings(data_dir=tmp_path / "data", switch_mode="off")
     _old_investigation(settings)
@@ -102,7 +102,7 @@ def test_prune_cli_reports_dry_run(tmp_path, capsys):
 
 
 def test_pruning_audit_archives_preserves_chain_verification(tmp_path):
-    from kube_investigator.audit import append_audit, verify_audit
+    from ai_sre.audit import append_audit, verify_audit
 
     data_dir = tmp_path / "data"
     assert append_audit(data_dir, "tool-audit", {"tool": "get", "actor": "a"})
@@ -120,11 +120,11 @@ def test_pruning_audit_archives_preserves_chain_verification(tmp_path):
 
 
 def test_pruning_audit_archives_updates_external_anchor(tmp_path, monkeypatch):
-    from kube_investigator.audit import append_audit, verify_audit
+    from ai_sre.audit import append_audit, verify_audit
 
     data_dir = tmp_path / "data"
     anchor_dir = tmp_path / "anchor"
-    monkeypatch.setenv("INVESTIGATOR_AUDIT_ANCHOR_DIR", str(anchor_dir))
+    monkeypatch.setenv("AI_SRE_AUDIT_ANCHOR_DIR", str(anchor_dir))
     assert append_audit(data_dir, "tool-audit", {"tool": "get", "actor": "a"})
     archive = data_dir / "tool-audit.20260101T000000000000Z.dead.jsonl"
     (data_dir / "tool-audit.jsonl").rename(archive)
@@ -147,7 +147,7 @@ def test_prune_dry_run_does_not_create_the_store(tmp_path):
 
 
 def test_prune_rejects_negative_days_from_the_cli(tmp_path, capsys):
-    from kube_investigator.cli import main
+    from ai_sre.cli import main
 
     assert (
         main(
@@ -187,12 +187,12 @@ def test_prune_keeps_pending_queue_rows(tmp_path):
 
 
 def test_anchor_tracks_rotation_and_is_rebuilt_when_missing(tmp_path, monkeypatch):
-    from kube_investigator.audit import append_audit, verify_audit
+    from ai_sre.audit import append_audit, verify_audit
 
     data_dir = tmp_path / "data"
     anchor_dir = tmp_path / "anchor"
-    monkeypatch.setenv("INVESTIGATOR_MCP_AUDIT_MAX_BYTES", "1")
-    monkeypatch.setenv("INVESTIGATOR_AUDIT_ANCHOR_DIR", str(anchor_dir))
+    monkeypatch.setenv("AI_SRE_MCP_AUDIT_MAX_BYTES", "1")
+    monkeypatch.setenv("AI_SRE_AUDIT_ANCHOR_DIR", str(anchor_dir))
     for index in range(4):
         assert append_audit(data_dir, "tool-audit", {"tool": "get", "n": index})
 
@@ -227,7 +227,7 @@ def test_prune_keeps_work_in_flight(tmp_path):
 
 
 def test_prune_rejects_excessive_days(tmp_path, capsys):
-    from kube_investigator.cli import main
+    from ai_sre.cli import main
 
     assert (
         main(
@@ -250,7 +250,7 @@ def test_prune_rejects_excessive_days(tmp_path, capsys):
 def test_prune_reports_a_locked_store(tmp_path, capsys):
     import sqlite3
 
-    from kube_investigator.cli import main
+    from ai_sre.cli import main
 
     settings = Settings(data_dir=tmp_path / "data", switch_mode="off")
     store, _investigation = _old_investigation(settings)
@@ -270,10 +270,10 @@ def test_prune_reports_a_locked_store(tmp_path, capsys):
 def test_prune_failure_keeps_the_remaining_chain_verifiable(tmp_path, monkeypatch):
     import pathlib
 
-    from kube_investigator.audit import append_audit, verify_audit
+    from ai_sre.audit import append_audit, verify_audit
 
     data_dir = tmp_path / "data"
-    monkeypatch.setenv("INVESTIGATOR_MCP_AUDIT_MAX_BYTES", "1")
+    monkeypatch.setenv("AI_SRE_MCP_AUDIT_MAX_BYTES", "1")
     for index in range(4):
         assert append_audit(data_dir, "tool-audit", {"tool": f"a{index}"})
     archives = sorted(data_dir.glob("tool-audit.*.jsonl"))
@@ -297,10 +297,10 @@ def test_prune_failure_keeps_the_remaining_chain_verifiable(tmp_path, monkeypatc
 
 
 def test_anchor_files_are_keyed_by_data_directory(tmp_path, monkeypatch):
-    from kube_investigator.audit import append_audit, verify_audit
+    from ai_sre.audit import append_audit, verify_audit
 
     anchor_dir = tmp_path / "anchor"
-    monkeypatch.setenv("INVESTIGATOR_AUDIT_ANCHOR_DIR", str(anchor_dir))
+    monkeypatch.setenv("AI_SRE_AUDIT_ANCHOR_DIR", str(anchor_dir))
     first = tmp_path / "tenant-a" / "data"
     second = tmp_path / "tenant-b" / "data"
 
@@ -313,10 +313,10 @@ def test_anchor_files_are_keyed_by_data_directory(tmp_path, monkeypatch):
 
 
 def test_verify_detects_a_forged_baseline_hiding_prefix_deletion(tmp_path, monkeypatch):
-    from kube_investigator.audit import append_audit, verify_audit
+    from ai_sre.audit import append_audit, verify_audit
 
     data_dir = tmp_path / "data"
-    monkeypatch.setenv("INVESTIGATOR_AUDIT_ANCHOR_DIR", str(tmp_path / "anchor"))
+    monkeypatch.setenv("AI_SRE_AUDIT_ANCHOR_DIR", str(tmp_path / "anchor"))
     for index in range(5):
         assert append_audit(data_dir, "tool-audit", {"tool": f"t{index}"})
 
@@ -334,10 +334,10 @@ def test_verify_detects_a_forged_baseline_hiding_prefix_deletion(tmp_path, monke
 
 
 def test_prune_refuses_a_tampered_archive(tmp_path, monkeypatch):
-    from kube_investigator.audit import append_audit, verify_audit
+    from ai_sre.audit import append_audit, verify_audit
 
     data_dir = tmp_path / "data"
-    monkeypatch.setenv("INVESTIGATOR_MCP_AUDIT_MAX_BYTES", "1")
+    monkeypatch.setenv("AI_SRE_MCP_AUDIT_MAX_BYTES", "1")
     for index in range(3):
         assert append_audit(data_dir, "tool-audit", {"tool": f"a{index}"})
     archive = sorted(data_dir.glob("tool-audit.*.jsonl"))[0]
@@ -355,7 +355,7 @@ def test_prune_refuses_a_tampered_archive(tmp_path, monkeypatch):
 
 
 def test_append_refuses_a_torn_tail(tmp_path):
-    from kube_investigator.audit import append_audit
+    from ai_sre.audit import append_audit
 
     data_dir = tmp_path / "data"
     data_dir.mkdir()
@@ -367,10 +367,10 @@ def test_append_refuses_a_torn_tail(tmp_path):
 
 
 def test_append_does_not_reanchor_a_truncated_log(tmp_path, monkeypatch):
-    from kube_investigator.audit import append_audit, verify_audit
+    from ai_sre.audit import append_audit, verify_audit
 
     data_dir = tmp_path / "data"
-    monkeypatch.setenv("INVESTIGATOR_AUDIT_ANCHOR_DIR", str(tmp_path / "anchor"))
+    monkeypatch.setenv("AI_SRE_AUDIT_ANCHOR_DIR", str(tmp_path / "anchor"))
     for index in range(3):
         assert append_audit(data_dir, "tool-audit", {"tool": f"t{index}"})
 
@@ -384,7 +384,7 @@ def test_append_does_not_reanchor_a_truncated_log(tmp_path, monkeypatch):
 
 
 def test_verify_reports_invalid_encoding_instead_of_raising(tmp_path):
-    from kube_investigator.audit import append_audit, verify_audit
+    from ai_sre.audit import append_audit, verify_audit
 
     data_dir = tmp_path / "data"
     assert append_audit(data_dir, "tool-audit", {"tool": "get"})

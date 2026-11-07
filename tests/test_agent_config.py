@@ -7,14 +7,14 @@ from pathlib import Path
 
 import pytest
 
-from kube_investigator.config import Settings
-from kube_investigator.mcp_auth import (
+from ai_sre.config import Settings
+from ai_sre.mcp_auth import (
     authorize_actor,
     authorize_tool,
     generate_actor_keypair,
     sign_actor_token,
 )
-from kube_investigator.switch.agent_config import (
+from ai_sre.switch.agent_config import (
     DEFAULT_TOKEN_TTL_SECONDS,
     agent_directory,
     config_mode_strict,
@@ -23,16 +23,16 @@ from kube_investigator.switch.agent_config import (
     write_agent_config,
     write_agent_directories,
 )
-from kube_investigator.switch.specs import AGENTS
+from ai_sre.switch.specs import AGENTS
 
 AGENT_NAMES = [spec.name for spec in AGENTS]
 
 
 @pytest.fixture()
 def wired(tmp_path, monkeypatch):
-    monkeypatch.delenv("INVESTIGATOR_MCP_PUBLIC_KEY", raising=False)
-    monkeypatch.delenv("INVESTIGATOR_MCP_ACTOR_TOKEN", raising=False)
-    monkeypatch.delenv("INVESTIGATOR_MCP_ACTOR", raising=False)
+    monkeypatch.delenv("AI_SRE_MCP_PUBLIC_KEY", raising=False)
+    monkeypatch.delenv("AI_SRE_MCP_ACTOR_TOKEN", raising=False)
+    monkeypatch.delenv("AI_SRE_MCP_ACTOR", raising=False)
     data_dir = tmp_path / "data"
     auth_dir = mcp_auth_dir(data_dir)
     directories = write_agent_directories(
@@ -55,15 +55,15 @@ def test_every_console_agent_gets_its_own_directory_and_identity(wired):
         assert config_path.exists()
         assert config_mode_strict(config_path)
         environment = load_config_environment(config_path)
-        assert environment["INVESTIGATOR_MCP_ACTOR"] == name
+        assert environment["AI_SRE_MCP_ACTOR"] == name
         # The data dir must be absolute: agents run from their own directory.
-        assert os.path.isabs(environment["INVESTIGATOR_DATA_DIR"])
-        assert Path(environment["INVESTIGATOR_DATA_DIR"]) == data_dir.resolve()
+        assert os.path.isabs(environment["AI_SRE_DATA_DIR"])
+        assert Path(environment["AI_SRE_DATA_DIR"]) == data_dir.resolve()
         payload = json.loads(config_path.read_text())
-        server = payload["mcp"]["kube-investigator"]
+        server = payload["mcp"]["ai-sre"]
         assert server["type"] == "local"
         assert server["command"][0] == "/venv/bin/python"
-        assert server["command"][1:] == ["-m", "kube_investigator.mcp_server"]
+        assert server["command"][1:] == ["-m", "ai_sre.mcp_server"]
 
 
 def test_tokens_are_signed_by_one_operator_key_and_verifiable(wired):
@@ -71,15 +71,15 @@ def test_tokens_are_signed_by_one_operator_key_and_verifiable(wired):
     _private_path, public_key = generate_actor_keypair(auth_dir)
     for name, directory in directories.items():
         environment = load_config_environment(directory / "opencode.json")
-        assert environment["INVESTIGATOR_MCP_PUBLIC_KEY"] == public_key
-        from kube_investigator.mcp_auth import verify_actor_token
+        assert environment["AI_SRE_MCP_PUBLIC_KEY"] == public_key
+        from ai_sre.mcp_auth import verify_actor_token
 
         payload = verify_actor_token(
-            environment["INVESTIGATOR_MCP_ACTOR_TOKEN"],
-            environment["INVESTIGATOR_MCP_PUBLIC_KEY"],
+            environment["AI_SRE_MCP_ACTOR_TOKEN"],
+            environment["AI_SRE_MCP_PUBLIC_KEY"],
         )
         assert payload["actor"] == name
-        assert payload["tenant"] == environment["INVESTIGATOR_TENANT"]
+        assert payload["tenant"] == environment["AI_SRE_TENANT"]
         assert payload["tools"], f"{name} token has no tool claim"
 
 
@@ -90,7 +90,7 @@ def test_tokens_expire_and_setup_rewrites_them(wired, tmp_path, monkeypatch):
 
     _private_path, public_key = generate_actor_keypair(auth_dir)
     short_lived = sign_actor_token(auth_dir / "mcp-actor-private.pem", name, "local", ttl=1)
-    from kube_investigator.mcp_auth import verify_actor_token
+    from ai_sre.mcp_auth import verify_actor_token
 
     # Push the clock past the token's exp to prove expiry, not just wrongness.
     now = time.time()
@@ -132,7 +132,7 @@ def test_missing_foreign_and_expired_tokens_fail_closed(wired, monkeypatch):
     first, second = AGENT_NAMES[0], AGENT_NAMES[1]
 
     missing = load_config_environment(directories[first] / "opencode.json")
-    missing.pop("INVESTIGATOR_MCP_ACTOR_TOKEN")
+    missing.pop("AI_SRE_MCP_ACTOR_TOKEN")
     settings = Settings(data_dir=directories[first], tenant="local")
     for key, value in missing.items():
         monkeypatch.setenv(key, value)
@@ -143,9 +143,9 @@ def test_missing_foreign_and_expired_tokens_fail_closed(wired, monkeypatch):
     # Foreign use: another agent's token presented under the first actor.
     foreign = load_config_environment(directories[first] / "opencode.json")
     second_token = load_config_environment(directories[second] / "opencode.json")[
-        "INVESTIGATOR_MCP_ACTOR_TOKEN"
+        "AI_SRE_MCP_ACTOR_TOKEN"
     ]
-    foreign["INVESTIGATOR_MCP_ACTOR_TOKEN"] = second_token
+    foreign["AI_SRE_MCP_ACTOR_TOKEN"] = second_token
     for key, value in foreign.items():
         monkeypatch.setenv(key, value)
     actor, error = authorize_actor(settings)
@@ -170,7 +170,7 @@ def test_wiring_is_repeatable_and_rotates_tokens(wired):
     data_dir, auth_dir, _directories = wired
     first = {
         name: load_config_environment(agent_directory(data_dir, name) / "opencode.json")[
-            "INVESTIGATOR_MCP_ACTOR_TOKEN"
+            "AI_SRE_MCP_ACTOR_TOKEN"
         ]
         for name in AGENT_NAMES
     }
@@ -188,21 +188,21 @@ def test_wiring_is_repeatable_and_rotates_tokens(wired):
     for name in AGENT_NAMES:
         config_path = agent_directory(data_dir, name) / "opencode.json"
         assert config_mode_strict(config_path)
-        rotated = load_config_environment(config_path)["INVESTIGATOR_MCP_ACTOR_TOKEN"]
+        rotated = load_config_environment(config_path)["AI_SRE_MCP_ACTOR_TOKEN"]
         assert rotated != first[name], f"{name} token was not rotated"
     # The keypair is reused so previously issued, unexpired tokens stay valid.
     env = load_config_environment(agent_directory(data_dir, AGENT_NAMES[0]) / "opencode.json")
     settings = Settings(tenant="local", data_dir=data_dir)
-    os.environ["INVESTIGATOR_MCP_PUBLIC_KEY"] = env["INVESTIGATOR_MCP_PUBLIC_KEY"]
-    os.environ["INVESTIGATOR_MCP_ACTOR"] = AGENT_NAMES[0]
-    os.environ["INVESTIGATOR_MCP_ACTOR_TOKEN"] = env["INVESTIGATOR_MCP_ACTOR_TOKEN"]
+    os.environ["AI_SRE_MCP_PUBLIC_KEY"] = env["AI_SRE_MCP_PUBLIC_KEY"]
+    os.environ["AI_SRE_MCP_ACTOR"] = AGENT_NAMES[0]
+    os.environ["AI_SRE_MCP_ACTOR_TOKEN"] = env["AI_SRE_MCP_ACTOR_TOKEN"]
     try:
         actor, error = authorize_actor(settings)
     finally:
         for key in (
-            "INVESTIGATOR_MCP_PUBLIC_KEY",
-            "INVESTIGATOR_MCP_ACTOR",
-            "INVESTIGATOR_MCP_ACTOR_TOKEN",
+            "AI_SRE_MCP_PUBLIC_KEY",
+            "AI_SRE_MCP_ACTOR",
+            "AI_SRE_MCP_ACTOR_TOKEN",
         ):
             os.environ.pop(key, None)
     assert (actor, error) == (AGENT_NAMES[0], None)
@@ -211,7 +211,7 @@ def test_wiring_is_repeatable_and_rotates_tokens(wired):
 def test_rotation_replaces_the_signing_key_and_invalidates_old_tokens(wired):
     from cryptography.exceptions import InvalidSignature
 
-    from kube_investigator.mcp_auth import verify_actor_token
+    from ai_sre.mcp_auth import verify_actor_token
 
     data_dir, auth_dir, _directories = wired
     config_path = agent_directory(data_dir, "incident-commander") / "opencode.json"
@@ -226,17 +226,17 @@ def test_rotation_replaces_the_signing_key_and_invalidates_old_tokens(wired):
         rotate_key=True,
     )
     after = load_config_environment(config_path)
-    assert after["INVESTIGATOR_MCP_PUBLIC_KEY"] != before["INVESTIGATOR_MCP_PUBLIC_KEY"]
-    assert after["INVESTIGATOR_MCP_ACTOR_TOKEN"] != before["INVESTIGATOR_MCP_ACTOR_TOKEN"]
+    assert after["AI_SRE_MCP_PUBLIC_KEY"] != before["AI_SRE_MCP_PUBLIC_KEY"]
+    assert after["AI_SRE_MCP_ACTOR_TOKEN"] != before["AI_SRE_MCP_ACTOR_TOKEN"]
     payload = verify_actor_token(
-        after["INVESTIGATOR_MCP_ACTOR_TOKEN"],
-        after["INVESTIGATOR_MCP_PUBLIC_KEY"],
+        after["AI_SRE_MCP_ACTOR_TOKEN"],
+        after["AI_SRE_MCP_PUBLIC_KEY"],
     )
     assert payload["actor"] == "incident-commander"
     with pytest.raises(InvalidSignature):
         verify_actor_token(
-            before["INVESTIGATOR_MCP_ACTOR_TOKEN"],
-            after["INVESTIGATOR_MCP_PUBLIC_KEY"],
+            before["AI_SRE_MCP_ACTOR_TOKEN"],
+            after["AI_SRE_MCP_PUBLIC_KEY"],
         )
 
 
@@ -258,7 +258,7 @@ def test_existing_key_material_permissions_are_tightened(wired):
 
 
 def test_tokens_carry_role_specific_tool_claims(wired):
-    from kube_investigator.mcp_auth import verify_actor_token
+    from ai_sre.mcp_auth import verify_actor_token
 
     _data_dir, _auth_dir, directories = wired
     expected = {
@@ -272,8 +272,8 @@ def test_tokens_carry_role_specific_tool_claims(wired):
     for name, directory in directories.items():
         environment = load_config_environment(directory / "opencode.json")
         payload = verify_actor_token(
-            environment["INVESTIGATOR_MCP_ACTOR_TOKEN"],
-            environment["INVESTIGATOR_MCP_PUBLIC_KEY"],
+            environment["AI_SRE_MCP_ACTOR_TOKEN"],
+            environment["AI_SRE_MCP_PUBLIC_KEY"],
         )
         assert set(payload["tools"]) == expected[name]
 

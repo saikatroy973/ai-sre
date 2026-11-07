@@ -30,7 +30,7 @@ Implemented and verified live through **Switch Console**, the mandatory live age
   templates.
 - A kickoff addressed to `incident-commander` starts the Console session. The commander dispatches
   the specialists with Switch `send_targeted_message`; the specialists return targeted results.
-- The `kube-investigator` MCP server supplies the read-only Kubernetes evidence path. It collects
+- The `ai-sre` MCP server supplies the read-only Kubernetes evidence path. It collects
   evidence, persists it, supports independent verification, searches approved memory, and returns
   explicit abstentions for telemetry/change sources that are not configured.
 - The live selector-mismatch run produced `evidence-summary` from the cluster investigator,
@@ -531,7 +531,7 @@ eleven message IDs, and the content hash; the old record is no longer returned b
 
 ### MCP memory tool contract (validated 2026-11-05)
 
-`kube_investigator_memory` exposes `tenant` as an optional nullable string with default `null`.
+`ai_sre_memory` exposes `tenant` as an optional nullable string with default `null`.
 `cluster`, `namespace`, and `query` remain required. The tool was validated through a direct
 stdio MCP client, not only by calling the Python function:
 
@@ -554,9 +554,9 @@ stdio MCP client, not only by calling the Python function:
 - Every authenticated `run`/`get`/`verify`/`source_status` call appends a metadata-only,
   hash-chained `tool-audit*.jsonl` row with the signed actor, tool, outcome, sanitized error, and
   request metadata. The log lives in the writable data directory, so the evidence SQLite store
-  stays read-only; `kube-investigator audit --verify` checks the tool chain. A failed audit write
+  stays read-only; `ai-sre audit --verify` checks the tool chain. A failed audit write
   fails the call closed. Each row records `auth_mode` (`token`/`dev`). The chain detects edits and
-  mid-chain breaks; `INVESTIGATOR_AUDIT_ANCHOR_DIR` records an external entry count and tail
+  mid-chain breaks; `AI_SRE_AUDIT_ANCHOR_DIR` records an external entry count and tail
   digest so verification also detects tail truncation, whole-file deletion, or a rewritten
   baseline; an empty log is rejected (for `tool-audit` and `memory-audit` alike). Anchors are keyed
   by data directory so one anchor root can serve several tenants, and retention verifies an archive
@@ -567,13 +567,13 @@ stdio MCP client, not only by calling the Python function:
   writable by the same attacker is tamper-evident, not tamper-proof.
 - Console-generated tokens carry a signed `tools` claim and the MCP server enforces it per tool;
   legacy tokens fall back to the built-in role map for known actors, then the optional server-side
-  `INVESTIGATOR_MCP_TOOLS` allowlist, which also intersects a signed `tools` claim when set. Default
+  `AI_SRE_MCP_TOOLS` allowlist, which also intersects a signed `tools` claim when set. Default
   token TTL is 14 days (setup caps `--token-ttl` at 56 days); `switch console status` reports
   wiring, tool claim, and expiry (including `EXPIRED`/`INVALID`/`MISMATCH` tokens) from the local
   agent directories, and the rotation runbook is
   `setup --actor-tokens --rotate-key` followed by an agent-runtime restart.
-- Set `INVESTIGATOR_MCP_ACTOR` as the audit label. For a credential check, configure
-  `INVESTIGATOR_MCP_PUBLIC_KEY` and a signed Ed25519 token in `INVESTIGATOR_MCP_ACTOR_TOKEN`;
+- Set `AI_SRE_MCP_ACTOR` as the audit label. For a credential check, configure
+  `AI_SRE_MCP_PUBLIC_KEY` and a signed Ed25519 token in `AI_SRE_MCP_ACTOR_TOKEN`;
   missing, expired, wrong-tenant, wrong-actor, and unauthorized-tool tokens are rejected. The
   private key stays with the operator. This does not replace OS/process isolation. In the local
   Console profile all agents run as the same OS user and can read each other's mode-0600 configs,
@@ -940,7 +940,7 @@ Switch Trust guardrail events supplement it; they do not replace it.
   can read each other's configs, the shared signing key, and token-bearing child environments,
   and can open the evidence DB or audit files directly. A signing service or per-agent
   uid/container remains required.
-- [x] Add writable external audit anchoring (`INVESTIGATOR_AUDIT_ANCHOR_DIR`), empty-log
+- [x] Add writable external audit anchoring (`AI_SRE_AUDIT_ANCHOR_DIR`), empty-log
   rejection, and `maintenance prune` retention for terminal investigations, finished queue rows,
   and rotated audit files (it verifies an archive chain before removing it).
 - [ ] Add ROI improvements review.

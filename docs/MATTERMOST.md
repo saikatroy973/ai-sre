@@ -21,8 +21,8 @@ media, the Postgres volume for messages and Switch state).
 Start / stop the stack:
 
 ```sh
-kube-investigator switch up --collab    # start (collab profile = Mattermost + seeder)
-kube-investigator switch down           # stop
+ai-sre switch up --collab    # start (collab profile = Mattermost + seeder)
+ai-sre switch down           # stop
 docker compose -f deploy/switch/compose.yaml --profile collab ps
 ```
 
@@ -68,7 +68,7 @@ names: a room message and the Mattermost post are the same event, mirrored by
 - **Agents do not run autonomously on this stack.** The self-hosted stack is the
   protocol harness: it registers the six identities and mirrors the rooms, but a
   process must act for an agent. Use the Console-managed sessions (live runtime)
-  or `kube-investigator switch-demo` (deterministic). If you mention an agent
+  or `ai-sre switch-demo` (deterministic). If you mention an agent
   with no runtime holding its role, Switch replies with a warning such as
   `no agent currently holds the evidence-verifier role`.
 - **Console rooms** are a separate plane; bridge a Console room to Mattermost
@@ -89,13 +89,13 @@ specialists → verifier → final hypothesis) instead of a single reply.
 3. Post a message as a human; it appears in the Switch room history:
 
    ```sh
-   kube-investigator switch status --json   # room ids
+   ai-sre switch status --json   # room ids
    ```
 
 4. Drive agent activity deterministically and watch the mirrored channel:
 
    ```sh
-   kube-investigator switch-demo --scenario selector-mismatch --json
+   ai-sre switch-demo --scenario selector-mismatch --json
    ```
 
 5. Probe the bridge endpoints directly:
@@ -153,7 +153,7 @@ It links a scaled-to-zero deployment to the service that lost its endpoints and 
 mismatched `targetPort` to the pod ports, so the commander answers with a root
 cause and a recommended first action instead of asking for a scope. A service or
 deployment named in the message focuses the audit on that resource's namespace. Replies also cite one `Knowledge:` playbook or
-`K8s reference:` URL from the role-scoped `kube_investigator_docs` index. A namespace named in the message scopes the audit (for
+`K8s reference:` URL from the role-scoped `ai_sre_docs` index. A namespace named in the message scopes the audit (for
 example `simple-devops`); otherwise it audits the whole cluster. On this cluster
 it reports: `simple-devops` deployment at 0 replicas, its Service with no
 endpoints, and historical restarts in `imesh-demo`.
@@ -178,7 +178,7 @@ mutates the cluster.
 
 Two fixes keep the agents "in session": the room socket's read loop now continues
 on its own one-second read timeout instead of treating it as a dead connection
-(`src/kube_investigator/switch/client.py`), so it keeps answering Switch's ping
+(`src/ai_sre/switch/client.py`), so it keeps answering Switch's ping
 frames; and the responder reconnects any dead session on every poll, plus retries
 a post after reconnecting. Verified by SIGKILLing the worker: launchd restarts it
 and the 13 sessions reopen automatically.
@@ -213,7 +213,7 @@ After claiming, addressing is allowed, but a harness agent with no connected ses
 
 That is the runtime boundary: the standalone stack mirrors rooms to Mattermost but does not run an
 LLM. For conversational answers, use the Console-managed agents (Console → room) or run
-`kube-investigator switch-demo` to drive the deterministic investigation.
+`ai-sre switch-demo` to drive the deterministic investigation.
 
 ## Security notes
 

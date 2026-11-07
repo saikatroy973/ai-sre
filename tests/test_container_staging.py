@@ -6,11 +6,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-from kube_investigator.auth import Principal
-from kube_investigator.config import Settings
-from kube_investigator.coordinator import build_coordinator
-from kube_investigator.models import InvestigationRequest
-from kube_investigator.storage import Store
+from ai_sre.auth import Principal
+from ai_sre.config import Settings
+from ai_sre.coordinator import build_coordinator
+from ai_sre.models import InvestigationRequest
+from ai_sre.storage import Store
 
 REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / "deploy" / "mcp-container" / "stage_evidence.py"
@@ -53,7 +53,7 @@ def test_staging_records_the_snapshot_digest(tmp_path):
     )
     snapshot = evidence / "investigator.sqlite3"
     assert (
-        values["INVESTIGATOR_EVIDENCE_PROBE_SHA256"]
+        values["AI_SRE_EVIDENCE_PROBE_SHA256"]
         == hashlib.sha256(snapshot.read_bytes()).hexdigest()
     )
     assert snapshot.stat().st_mode & 0o777 == 0o444
@@ -92,7 +92,7 @@ def test_staging_refuses_a_corrupt_record(tmp_path):
 
 def test_container_probe_checks_the_snapshot_digest():
     runtime = (REPO / "deploy" / "mcp-container" / "verify_runtime.py").read_text()
-    assert "INVESTIGATOR_EVIDENCE_PROBE_SHA256" in runtime
+    assert "AI_SRE_EVIDENCE_PROBE_SHA256" in runtime
     assert "snapshot digest does not match" in runtime
     staging = (REPO / "deploy" / "mcp-container" / "stage_evidence.py").read_text()
-    assert "INVESTIGATOR_EVIDENCE_PROBE_SHA256" in staging
+    assert "AI_SRE_EVIDENCE_PROBE_SHA256" in staging

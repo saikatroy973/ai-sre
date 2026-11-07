@@ -9,7 +9,7 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[1]
 CONTAINER_DIR = REPO / "deploy" / "mcp-container"
-IMAGE = "kube-investigator-mcp:isolated"
+IMAGE = "ai-sre-mcp:isolated"
 
 
 def _docker_available() -> bool:

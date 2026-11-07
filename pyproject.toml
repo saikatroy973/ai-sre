@@ -3,7 +3,7 @@ requires = ["setuptools>=75"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "kube-investigator"
+name = "ai-sre"
 version = "0.1.0"
 description = "AI SRE: evidence-backed, read-only multi-agent Kubernetes investigations"
 readme = "README.md"
@@ -37,13 +37,13 @@ video = [
 ]
 
 [project.scripts]
-kube-investigator = "kube_investigator.cli:main"
+ai-sre = "ai_sre.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-kube_investigator = ["fixtures/*.json"]
+ai_sre = ["fixtures/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

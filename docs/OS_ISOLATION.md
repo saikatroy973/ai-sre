@@ -37,7 +37,7 @@ container is stateless by construction.
 
 ```sh
 docker build --quiet -f deploy/mcp-container/Dockerfile \
-  -t kube-investigator-mcp:isolated .
+  -t ai-sre-mcp:isolated .
 
 docker run --rm \
   --read-only \
@@ -48,7 +48,7 @@ docker run --rm \
   --memory 512m \
   --tmpfs /tmp:rw,size=16m,noexec,nosuid \
   --tmpfs /data:rw,size=64m,noexec,nosuid \
-  kube-investigator-mcp:isolated python -m kube_investigator.mcp_server
+  ai-sre-mcp:isolated python -m ai_sre.mcp_server
 ```
 
 | Flag | What it buys |
@@ -116,7 +116,7 @@ The MCP evidence tools open the store with
 `Store(..., readonly=True)`: URI mode `ro`, so the child process cannot
 create, migrate, upgrade, or write the database it reads — a write attempt
 fails with `attempt to write a readonly database`, and a missing store is a
-clean, honest refusal instead of a silent reparent. `INVESTIGATOR_EVIDENCE_STORE_DIR`
+clean, honest refusal instead of a silent reparent. `AI_SRE_EVIDENCE_STORE_DIR`
 points the tools at a staged snapshot when `data_dir` is not the mounted
 one. Memory search and the other MCP tools keep a writable tmpfs data
 directory for their rotating, hash-chained audit trails; the audit rows name
@@ -125,7 +125,7 @@ the verified actor and never go into the evidence database.
 ## Combining with actor tokens
 
 OS isolation bounds *what the process can do*; Ed25519 actor tokens
-(`src/kube_investigator/mcp_auth.py`, wiring via
+(`src/ai_sre/mcp_auth.py`, wiring via
 `switch console setup`) are intended to distinguish *who is being seen*. Every
 MCP tool except `health` requires a valid signed token when a public key is
 configured; generated tokens also carry a role-specific `tools` claim, and
@@ -152,7 +152,7 @@ approval/identity checks, or each agent gets a separate uid/container.
 - The prototype is for **local Docker on this machine**. Console migration
   needs the agent definition's MCP command to match the run flags, or an
   agent-side supervisor to start it; neither is wired yet.
-- `--network none` means the container's `kube_investigator_run` cannot
+- `--network none` means the container's `ai_sre_run` cannot
   reach a live Switch or cluster: in this profile a Kubernetes-backed run
   fails closed by design (the fixture backend still works offline). Reads
   of real evidence go through the staged read-only snapshot (`evidence-store`

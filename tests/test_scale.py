@@ -5,10 +5,10 @@ from uuid import uuid4
 import httpx
 import pytest
 
-from kube_investigator.coordinator import Coordinator
-from kube_investigator.errors import ConfigurationError, ReasoningError
-from kube_investigator.models import Candidate
-from kube_investigator.reasoners import ScaleReasoner
+from ai_sre.coordinator import Coordinator
+from ai_sre.errors import ConfigurationError, ReasoningError
+from ai_sre.models import Candidate
+from ai_sre.reasoners import ScaleReasoner
 
 
 def scale_settings(settings):
@@ -161,7 +161,7 @@ def test_timeout_does_not_expose_provider_details(settings, request_data, eviden
 
 def test_slow_response_has_a_wall_clock_budget(settings, request_data, evidence, monkeypatch):
     times = iter([0.0, settings.model_timeout_seconds + 1.0])
-    monkeypatch.setattr("kube_investigator.reasoners.monotonic", lambda: next(times))
+    monkeypatch.setattr("ai_sre.reasoners.monotonic", lambda: next(times))
     with httpx.Client(
         transport=httpx.MockTransport(lambda _: httpx.Response(200, json=response_body(evidence)))
     ) as http:

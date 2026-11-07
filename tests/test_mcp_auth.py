@@ -6,14 +6,14 @@ import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from kube_investigator.config import Settings
-from kube_investigator.mcp_auth import (
+from ai_sre.config import Settings
+from ai_sre.mcp_auth import (
     authorize_actor,
     authorize_tool,
     inspect_actor_token,
     verify_actor_token,
 )
-from kube_investigator.mcp_server import search_memory
+from ai_sre.mcp_server import search_memory
 
 
 def b64(value: bytes) -> str:
@@ -51,16 +51,16 @@ def test_signed_actor_token_verifies_and_expires():
 def test_authorize_actor_requires_a_matching_valid_token(monkeypatch, tmp_path):
     private_key, public_key = keypair()
     settings = Settings(tenant="local", data_dir=tmp_path)
-    monkeypatch.setenv("INVESTIGATOR_MCP_PUBLIC_KEY", public_key)
-    monkeypatch.setenv("INVESTIGATOR_MCP_ACTOR", "memory-researcher")
+    monkeypatch.setenv("AI_SRE_MCP_PUBLIC_KEY", public_key)
+    monkeypatch.setenv("AI_SRE_MCP_ACTOR", "memory-researcher")
 
-    monkeypatch.delenv("INVESTIGATOR_MCP_ACTOR_TOKEN", raising=False)
+    monkeypatch.delenv("AI_SRE_MCP_ACTOR_TOKEN", raising=False)
     actor, error = authorize_actor(settings)
     assert actor is None
     assert error == "MCP actor token is required"
 
     monkeypatch.setenv(
-        "INVESTIGATOR_MCP_ACTOR_TOKEN",
+        "AI_SRE_MCP_ACTOR_TOKEN",
         token(private_key, actor="memory-researcher", tenant="local"),
     )
     actor, error = authorize_actor(settings)
@@ -68,7 +68,7 @@ def test_authorize_actor_requires_a_matching_valid_token(monkeypatch, tmp_path):
     assert error is None
 
     monkeypatch.setenv(
-        "INVESTIGATOR_MCP_ACTOR_TOKEN",
+        "AI_SRE_MCP_ACTOR_TOKEN",
         token(private_key, actor="memory-researcher", tenant="other"),
     )
     actor, error = authorize_actor(settings)
@@ -76,7 +76,7 @@ def test_authorize_actor_requires_a_matching_valid_token(monkeypatch, tmp_path):
     assert error == "MCP actor token is outside the configured tenant"
 
     monkeypatch.setenv(
-        "INVESTIGATOR_MCP_ACTOR_TOKEN",
+        "AI_SRE_MCP_ACTOR_TOKEN",
         token(private_key, actor="incident-commander", tenant="local"),
     )
     actor, error = authorize_actor(settings)
@@ -86,13 +86,13 @@ def test_authorize_actor_requires_a_matching_valid_token(monkeypatch, tmp_path):
 
 def test_authorize_actor_falls_back_to_env_label_without_public_key(monkeypatch, tmp_path):
     settings = Settings(tenant="local", data_dir=tmp_path)
-    monkeypatch.delenv("INVESTIGATOR_MCP_PUBLIC_KEY", raising=False)
-    monkeypatch.setenv("INVESTIGATOR_MCP_ACTOR", "memory-researcher")
+    monkeypatch.delenv("AI_SRE_MCP_PUBLIC_KEY", raising=False)
+    monkeypatch.setenv("AI_SRE_MCP_ACTOR", "memory-researcher")
     actor, error = authorize_actor(settings)
     assert actor == "memory-researcher"
     assert error is None
 
-    monkeypatch.delenv("INVESTIGATOR_MCP_ACTOR", raising=False)
+    monkeypatch.delenv("AI_SRE_MCP_ACTOR", raising=False)
     actor, error = authorize_actor(settings)
     assert actor == "mcp"
     assert error is None
@@ -101,10 +101,10 @@ def test_authorize_actor_falls_back_to_env_label_without_public_key(monkeypatch,
 def test_token_tools_claim_enforces_least_privilege(monkeypatch, tmp_path):
     private_key, public_key = keypair()
     settings = Settings(tenant="local", data_dir=tmp_path)
-    monkeypatch.setenv("INVESTIGATOR_MCP_PUBLIC_KEY", public_key)
-    monkeypatch.setenv("INVESTIGATOR_MCP_ACTOR", "memory-researcher")
+    monkeypatch.setenv("AI_SRE_MCP_PUBLIC_KEY", public_key)
+    monkeypatch.setenv("AI_SRE_MCP_ACTOR", "memory-researcher")
     monkeypatch.setenv(
-        "INVESTIGATOR_MCP_ACTOR_TOKEN",
+        "AI_SRE_MCP_ACTOR_TOKEN",
         token(private_key, actor="memory-researcher", tools=["memory"]),
     )
 
@@ -113,17 +113,17 @@ def test_token_tools_claim_enforces_least_privilege(monkeypatch, tmp_path):
     actor, error = authorize_tool(settings, "run")
     assert actor == "memory-researcher"
     assert error == "MCP actor is not authorized for this tool"
-    actor, error = authorize_tool(settings, "kube_investigator_verify")
+    actor, error = authorize_tool(settings, "ai_sre_verify")
     assert error == "MCP actor is not authorized for this tool"
 
 
 def test_known_role_map_restricts_legacy_tokens_without_a_claim(monkeypatch, tmp_path):
     private_key, public_key = keypair()
     settings = Settings(tenant="local", data_dir=tmp_path)
-    monkeypatch.setenv("INVESTIGATOR_MCP_PUBLIC_KEY", public_key)
-    monkeypatch.setenv("INVESTIGATOR_MCP_ACTOR", "memory-researcher")
+    monkeypatch.setenv("AI_SRE_MCP_PUBLIC_KEY", public_key)
+    monkeypatch.setenv("AI_SRE_MCP_ACTOR", "memory-researcher")
     monkeypatch.setenv(
-        "INVESTIGATOR_MCP_ACTOR_TOKEN",
+        "AI_SRE_MCP_ACTOR_TOKEN",
         token(private_key, actor="memory-researcher"),
     )
     assert authorize_tool(settings, "memory") == ("memory-researcher", None)
@@ -133,13 +133,13 @@ def test_known_role_map_restricts_legacy_tokens_without_a_claim(monkeypatch, tmp
 def test_server_side_tool_allowlist_restricts_legacy_tokens(monkeypatch, tmp_path):
     private_key, public_key = keypair()
     settings = Settings(tenant="local", data_dir=tmp_path)
-    monkeypatch.setenv("INVESTIGATOR_MCP_PUBLIC_KEY", public_key)
-    monkeypatch.setenv("INVESTIGATOR_MCP_ACTOR", "memory-researcher")
+    monkeypatch.setenv("AI_SRE_MCP_PUBLIC_KEY", public_key)
+    monkeypatch.setenv("AI_SRE_MCP_ACTOR", "memory-researcher")
     monkeypatch.setenv(
-        "INVESTIGATOR_MCP_ACTOR_TOKEN",
+        "AI_SRE_MCP_ACTOR_TOKEN",
         token(private_key, actor="memory-researcher"),
     )
-    monkeypatch.setenv("INVESTIGATOR_MCP_TOOLS", "memory,get")
+    monkeypatch.setenv("AI_SRE_MCP_TOOLS", "memory,get")
 
     assert authorize_tool(settings, "memory") == ("memory-researcher", None)
     assert authorize_tool(settings, "run")[1] == ("MCP actor is not authorized for this tool")
@@ -163,12 +163,12 @@ def test_inspect_actor_token_reports_expiry_and_tools():
 
 def test_search_memory_rejects_missing_or_foreign_token(monkeypatch, tmp_path):
     private_key, public_key = keypair()
-    monkeypatch.setenv("INVESTIGATOR_DATA_DIR", str(tmp_path / "data"))
-    monkeypatch.setenv("INVESTIGATOR_TENANT", "local")
-    monkeypatch.setenv("INVESTIGATOR_SWITCH_MODE", "off")
-    monkeypatch.setenv("INVESTIGATOR_MCP_PUBLIC_KEY", public_key)
-    monkeypatch.setenv("INVESTIGATOR_MCP_ACTOR", "memory-researcher")
-    monkeypatch.delenv("INVESTIGATOR_MCP_ACTOR_TOKEN", raising=False)
+    monkeypatch.setenv("AI_SRE_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("AI_SRE_TENANT", "local")
+    monkeypatch.setenv("AI_SRE_SWITCH_MODE", "off")
+    monkeypatch.setenv("AI_SRE_MCP_PUBLIC_KEY", public_key)
+    monkeypatch.setenv("AI_SRE_MCP_ACTOR", "memory-researcher")
+    monkeypatch.delenv("AI_SRE_MCP_ACTOR_TOKEN", raising=False)
 
     missing = search_memory(
         cluster="demo-cluster",
@@ -179,7 +179,7 @@ def test_search_memory_rejects_missing_or_foreign_token(monkeypatch, tmp_path):
     assert missing["error"] == "MCP actor token is required"
 
     monkeypatch.setenv(
-        "INVESTIGATOR_MCP_ACTOR_TOKEN",
+        "AI_SRE_MCP_ACTOR_TOKEN",
         token(private_key, actor="memory-researcher", tenant="other"),
     )
     foreign = search_memory(
@@ -191,7 +191,7 @@ def test_search_memory_rejects_missing_or_foreign_token(monkeypatch, tmp_path):
     assert foreign["error"] == "MCP actor token is outside the configured tenant"
 
     monkeypatch.setenv(
-        "INVESTIGATOR_MCP_ACTOR_TOKEN",
+        "AI_SRE_MCP_ACTOR_TOKEN",
         token(private_key, actor="memory-researcher", tenant="local"),
     )
     allowed = search_memory(
@@ -207,7 +207,7 @@ def test_every_evidence_tool_requires_the_signed_token(monkeypatch, tmp_path):
     """run/get/verify/source_status are gated exactly like memory search."""
     from uuid import uuid4
 
-    from kube_investigator.mcp_server import (
+    from ai_sre.mcp_server import (
         get_investigation,
         run_investigation,
         source_status,
@@ -215,11 +215,11 @@ def test_every_evidence_tool_requires_the_signed_token(monkeypatch, tmp_path):
     )
 
     private_key, public_key = keypair()
-    monkeypatch.setenv("INVESTIGATOR_DATA_DIR", str(tmp_path / "data"))
-    monkeypatch.setenv("INVESTIGATOR_SWITCH_MODE", "off")
-    monkeypatch.setenv("INVESTIGATOR_MCP_PUBLIC_KEY", public_key)
-    monkeypatch.setenv("INVESTIGATOR_MCP_ACTOR", "incident-commander")
-    monkeypatch.delenv("INVESTIGATOR_MCP_ACTOR_TOKEN", raising=False)
+    monkeypatch.setenv("AI_SRE_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("AI_SRE_SWITCH_MODE", "off")
+    monkeypatch.setenv("AI_SRE_MCP_PUBLIC_KEY", public_key)
+    monkeypatch.setenv("AI_SRE_MCP_ACTOR", "incident-commander")
+    monkeypatch.delenv("AI_SRE_MCP_ACTOR_TOKEN", raising=False)
 
     missing = "MCP actor token is required"
     assert run_investigation(
@@ -238,7 +238,7 @@ def test_every_evidence_tool_requires_the_signed_token(monkeypatch, tmp_path):
     assert source_status("kubernetes") == {"ok": False, "error": missing}
 
     monkeypatch.setenv(
-        "INVESTIGATOR_MCP_ACTOR_TOKEN",
+        "AI_SRE_MCP_ACTOR_TOKEN",
         token(private_key, actor="incident-commander", tenant="local"),
     )
     status = source_status("kubernetes")
@@ -246,10 +246,10 @@ def test_every_evidence_tool_requires_the_signed_token(monkeypatch, tmp_path):
     assert status["configured"] is False
 
     # Without a token at all, health stays open but is reduced to liveness.
-    from kube_investigator.mcp_server import kube_investigator_health
+    from ai_sre.mcp_server import ai_sre_health
 
-    monkeypatch.delenv("INVESTIGATOR_MCP_ACTOR_TOKEN", raising=False)
-    health = kube_investigator_health()
+    monkeypatch.delenv("AI_SRE_MCP_ACTOR_TOKEN", raising=False)
+    health = ai_sre_health()
     assert health["ok"] is True
     assert health["authenticated"] is False
     assert "tenant" not in health
@@ -257,10 +257,10 @@ def test_every_evidence_tool_requires_the_signed_token(monkeypatch, tmp_path):
     assert "namespaces" not in health
 
     monkeypatch.setenv(
-        "INVESTIGATOR_MCP_ACTOR_TOKEN",
+        "AI_SRE_MCP_ACTOR_TOKEN",
         token(private_key, actor="incident-commander", tenant="local"),
     )
-    detailed = kube_investigator_health()
+    detailed = ai_sre_health()
     assert detailed["authenticated"] is True
     assert detailed["tenant"] == "local"
     assert detailed["cluster"] == "demo-cluster"
@@ -268,16 +268,16 @@ def test_every_evidence_tool_requires_the_signed_token(monkeypatch, tmp_path):
     # The MCP transport path still answers liveness without a token.
     import asyncio
 
-    from kube_investigator.mcp_server import mcp
+    from ai_sre.mcp_server import mcp
 
-    monkeypatch.delenv("INVESTIGATOR_MCP_ACTOR_TOKEN", raising=False)
-    protocol = asyncio.run(mcp.call_tool("kube_investigator_health", {}))
+    monkeypatch.delenv("AI_SRE_MCP_ACTOR_TOKEN", raising=False)
+    protocol = asyncio.run(mcp.call_tool("ai_sre_health", {}))
     assert "ok" in json.dumps(protocol, default=str)
 
 
 def test_every_authenticated_tool_writes_actor_attributed_audit(monkeypatch, tmp_path):
-    from kube_investigator.audit import read_audit, verify_audit
-    from kube_investigator.mcp_server import (
+    from ai_sre.audit import read_audit, verify_audit
+    from ai_sre.mcp_server import (
         get_investigation,
         run_investigation,
         source_status,
@@ -286,15 +286,15 @@ def test_every_authenticated_tool_writes_actor_attributed_audit(monkeypatch, tmp
 
     private_key, public_key = keypair()
     data_dir = tmp_path / "data"
-    monkeypatch.setenv("INVESTIGATOR_DATA_DIR", str(data_dir))
-    monkeypatch.setenv("INVESTIGATOR_BACKEND", "fixture")
-    monkeypatch.setenv("INVESTIGATOR_SCENARIO", "selector-mismatch")
-    monkeypatch.setenv("INVESTIGATOR_REASONER", "deterministic")
-    monkeypatch.setenv("INVESTIGATOR_SWITCH_MODE", "off")
-    monkeypatch.setenv("INVESTIGATOR_MCP_PUBLIC_KEY", public_key)
-    monkeypatch.setenv("INVESTIGATOR_MCP_ACTOR", "incident-commander")
+    monkeypatch.setenv("AI_SRE_DATA_DIR", str(data_dir))
+    monkeypatch.setenv("AI_SRE_BACKEND", "fixture")
+    monkeypatch.setenv("AI_SRE_SCENARIO", "selector-mismatch")
+    monkeypatch.setenv("AI_SRE_REASONER", "deterministic")
+    monkeypatch.setenv("AI_SRE_SWITCH_MODE", "off")
+    monkeypatch.setenv("AI_SRE_MCP_PUBLIC_KEY", public_key)
+    monkeypatch.setenv("AI_SRE_MCP_ACTOR", "incident-commander")
     monkeypatch.setenv(
-        "INVESTIGATOR_MCP_ACTOR_TOKEN",
+        "AI_SRE_MCP_ACTOR_TOKEN",
         token(private_key, actor="incident-commander", tenant="local"),
     )
 
@@ -335,19 +335,19 @@ def test_every_authenticated_tool_writes_actor_attributed_audit(monkeypatch, tmp
 
 
 def test_cross_agent_read_keeps_each_signed_actor_distinct(monkeypatch, tmp_path):
-    from kube_investigator.audit import read_audit
-    from kube_investigator.mcp_server import get_investigation, run_investigation
+    from ai_sre.audit import read_audit
+    from ai_sre.mcp_server import get_investigation, run_investigation
 
     private_key, public_key = keypair()
     data_dir = tmp_path / "data"
-    monkeypatch.setenv("INVESTIGATOR_DATA_DIR", str(data_dir))
-    monkeypatch.setenv("INVESTIGATOR_BACKEND", "fixture")
-    monkeypatch.setenv("INVESTIGATOR_SWITCH_MODE", "off")
-    monkeypatch.setenv("INVESTIGATOR_MCP_PUBLIC_KEY", public_key)
+    monkeypatch.setenv("AI_SRE_DATA_DIR", str(data_dir))
+    monkeypatch.setenv("AI_SRE_BACKEND", "fixture")
+    monkeypatch.setenv("AI_SRE_SWITCH_MODE", "off")
+    monkeypatch.setenv("AI_SRE_MCP_PUBLIC_KEY", public_key)
 
-    monkeypatch.setenv("INVESTIGATOR_MCP_ACTOR", "incident-commander")
+    monkeypatch.setenv("AI_SRE_MCP_ACTOR", "incident-commander")
     monkeypatch.setenv(
-        "INVESTIGATOR_MCP_ACTOR_TOKEN",
+        "AI_SRE_MCP_ACTOR_TOKEN",
         token(private_key, actor="incident-commander", tenant="local"),
     )
     run = run_investigation(
@@ -359,9 +359,9 @@ def test_cross_agent_read_keeps_each_signed_actor_distinct(monkeypatch, tmp_path
     )
     assert run["ok"] is True
 
-    monkeypatch.setenv("INVESTIGATOR_MCP_ACTOR", "evidence-verifier")
+    monkeypatch.setenv("AI_SRE_MCP_ACTOR", "evidence-verifier")
     monkeypatch.setenv(
-        "INVESTIGATOR_MCP_ACTOR_TOKEN",
+        "AI_SRE_MCP_ACTOR_TOKEN",
         token(private_key, actor="evidence-verifier", tenant="local"),
     )
     assert get_investigation(run["investigation_id"])["ok"] is True
@@ -374,8 +374,8 @@ def test_cross_agent_read_keeps_each_signed_actor_distinct(monkeypatch, tmp_path
 
 
 def test_rejected_tool_calls_are_audited_as_unauthenticated(monkeypatch, tmp_path):
-    from kube_investigator.audit import read_audit
-    from kube_investigator.mcp_server import (
+    from ai_sre.audit import read_audit
+    from ai_sre.mcp_server import (
         get_investigation,
         run_investigation,
         source_status,
@@ -384,11 +384,11 @@ def test_rejected_tool_calls_are_audited_as_unauthenticated(monkeypatch, tmp_pat
 
     private_key, public_key = keypair()
     data_dir = tmp_path / "data"
-    monkeypatch.setenv("INVESTIGATOR_DATA_DIR", str(data_dir))
-    monkeypatch.setenv("INVESTIGATOR_SWITCH_MODE", "off")
-    monkeypatch.setenv("INVESTIGATOR_MCP_PUBLIC_KEY", public_key)
-    monkeypatch.setenv("INVESTIGATOR_MCP_ACTOR", "incident-commander")
-    monkeypatch.delenv("INVESTIGATOR_MCP_ACTOR_TOKEN", raising=False)
+    monkeypatch.setenv("AI_SRE_DATA_DIR", str(data_dir))
+    monkeypatch.setenv("AI_SRE_SWITCH_MODE", "off")
+    monkeypatch.setenv("AI_SRE_MCP_PUBLIC_KEY", public_key)
+    monkeypatch.setenv("AI_SRE_MCP_ACTOR", "incident-commander")
+    monkeypatch.delenv("AI_SRE_MCP_ACTOR_TOKEN", raising=False)
 
     run_investigation(
         question="Why is checkout failing?",
@@ -413,11 +413,11 @@ def test_rejected_tool_calls_are_audited_as_unauthenticated(monkeypatch, tmp_pat
 
 
 def test_audit_failure_fails_the_tool_closed(monkeypatch, tmp_path):
-    from kube_investigator import mcp_server
+    from ai_sre import mcp_server
 
-    monkeypatch.setenv("INVESTIGATOR_DATA_DIR", str(tmp_path / "data"))
-    monkeypatch.setenv("INVESTIGATOR_BACKEND", "fixture")
-    monkeypatch.setenv("INVESTIGATOR_SWITCH_MODE", "off")
+    monkeypatch.setenv("AI_SRE_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("AI_SRE_BACKEND", "fixture")
+    monkeypatch.setenv("AI_SRE_SWITCH_MODE", "off")
     monkeypatch.setattr(mcp_server, "append_audit", lambda *args, **kwargs: False)
 
     result = mcp_server.source_status("kubernetes")
@@ -425,12 +425,12 @@ def test_audit_failure_fails_the_tool_closed(monkeypatch, tmp_path):
 
 
 def test_tool_audit_bounds_caller_supplied_metadata(monkeypatch, tmp_path):
-    from kube_investigator.audit import read_audit
-    from kube_investigator.mcp_server import get_investigation
+    from ai_sre.audit import read_audit
+    from ai_sre.mcp_server import get_investigation
 
     data_dir = tmp_path / "data"
-    monkeypatch.setenv("INVESTIGATOR_DATA_DIR", str(data_dir))
-    monkeypatch.setenv("INVESTIGATOR_SWITCH_MODE", "off")
+    monkeypatch.setenv("AI_SRE_DATA_DIR", str(data_dir))
+    monkeypatch.setenv("AI_SRE_SWITCH_MODE", "off")
     assert get_investigation("x" * 10_000)["ok"] is False
     entries = read_audit(data_dir, "tool-audit", limit=5)
     assert len(entries) == 1
@@ -439,16 +439,16 @@ def test_tool_audit_bounds_caller_supplied_metadata(monkeypatch, tmp_path):
 
 
 def test_memory_researcher_token_cannot_run_investigation(monkeypatch, tmp_path):
-    from kube_investigator.mcp_server import run_investigation
+    from ai_sre.mcp_server import run_investigation
 
     private_key, public_key = keypair()
-    monkeypatch.setenv("INVESTIGATOR_DATA_DIR", str(tmp_path / "data"))
-    monkeypatch.setenv("INVESTIGATOR_BACKEND", "fixture")
-    monkeypatch.setenv("INVESTIGATOR_SWITCH_MODE", "off")
-    monkeypatch.setenv("INVESTIGATOR_MCP_PUBLIC_KEY", public_key)
-    monkeypatch.setenv("INVESTIGATOR_MCP_ACTOR", "memory-researcher")
+    monkeypatch.setenv("AI_SRE_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("AI_SRE_BACKEND", "fixture")
+    monkeypatch.setenv("AI_SRE_SWITCH_MODE", "off")
+    monkeypatch.setenv("AI_SRE_MCP_PUBLIC_KEY", public_key)
+    monkeypatch.setenv("AI_SRE_MCP_ACTOR", "memory-researcher")
     monkeypatch.setenv(
-        "INVESTIGATOR_MCP_ACTOR_TOKEN",
+        "AI_SRE_MCP_ACTOR_TOKEN",
         token(private_key, actor="memory-researcher", tools=["memory"]),
     )
     result = run_investigation(
@@ -467,13 +467,13 @@ def test_memory_researcher_token_cannot_run_investigation(monkeypatch, tmp_path)
 def test_server_allowlist_caps_a_signed_tools_claim(monkeypatch, tmp_path):
     private_key, public_key = keypair()
     settings = Settings(tenant="local", data_dir=tmp_path)
-    monkeypatch.setenv("INVESTIGATOR_MCP_PUBLIC_KEY", public_key)
-    monkeypatch.setenv("INVESTIGATOR_MCP_ACTOR", "incident-commander")
+    monkeypatch.setenv("AI_SRE_MCP_PUBLIC_KEY", public_key)
+    monkeypatch.setenv("AI_SRE_MCP_ACTOR", "incident-commander")
     monkeypatch.setenv(
-        "INVESTIGATOR_MCP_ACTOR_TOKEN",
+        "AI_SRE_MCP_ACTOR_TOKEN",
         token(private_key, actor="incident-commander", tools=["run", "get"]),
     )
-    monkeypatch.setenv("INVESTIGATOR_MCP_TOOLS", "get")
+    monkeypatch.setenv("AI_SRE_MCP_TOOLS", "get")
 
     assert authorize_tool(settings, "get") == ("incident-commander", None)
     actor, error = authorize_tool(settings, "run")
@@ -483,9 +483,9 @@ def test_server_allowlist_caps_a_signed_tools_claim(monkeypatch, tmp_path):
 
 def test_actor_token_without_a_public_key_fails_closed(monkeypatch, tmp_path):
     settings = Settings(tenant="local", data_dir=tmp_path)
-    monkeypatch.setenv("INVESTIGATOR_MCP_ACTOR", "telemetry-analyst")
-    monkeypatch.setenv("INVESTIGATOR_MCP_ACTOR_TOKEN", "payload.signature")
-    monkeypatch.delenv("INVESTIGATOR_MCP_PUBLIC_KEY", raising=False)
+    monkeypatch.setenv("AI_SRE_MCP_ACTOR", "telemetry-analyst")
+    monkeypatch.setenv("AI_SRE_MCP_ACTOR_TOKEN", "payload.signature")
+    monkeypatch.delenv("AI_SRE_MCP_PUBLIC_KEY", raising=False)
 
     actor, error = authorize_tool(settings, "run")
     assert actor is None
@@ -504,10 +504,10 @@ def test_inspect_actor_token_never_claims_an_unverified_signature():
 def test_empty_tools_claim_denies_every_tool(monkeypatch, tmp_path):
     private_key, public_key = keypair()
     settings = Settings(tenant="local", data_dir=tmp_path)
-    monkeypatch.setenv("INVESTIGATOR_MCP_PUBLIC_KEY", public_key)
-    monkeypatch.setenv("INVESTIGATOR_MCP_ACTOR", "memory-researcher")
+    monkeypatch.setenv("AI_SRE_MCP_PUBLIC_KEY", public_key)
+    monkeypatch.setenv("AI_SRE_MCP_ACTOR", "memory-researcher")
     monkeypatch.setenv(
-        "INVESTIGATOR_MCP_ACTOR_TOKEN",
+        "AI_SRE_MCP_ACTOR_TOKEN",
         token(private_key, actor="memory-researcher", tools=[]),
     )
 

@@ -3,10 +3,10 @@ import json
 import httpx
 import pytest
 
-from kube_investigator.cli import main
-from kube_investigator.errors import ConfigurationError, SwitchError
-from kube_investigator.switch.runtime import FakeSwitchRuntime
-from kube_investigator.switch.trust import (
+from ai_sre.cli import main
+from ai_sre.errors import ConfigurationError, SwitchError
+from ai_sre.switch.runtime import FakeSwitchRuntime
+from ai_sre.switch.trust import (
     ROI_ANALYSIS_TYPES,
     TrustClient,
     TrustSettings,
@@ -151,9 +151,9 @@ def test_api_base_derivation_replaces_the_edge_label():
 
 
 def test_settings_require_a_key_only_when_required(monkeypatch):
-    monkeypatch.delenv("INVESTIGATOR_TRUST_API_KEY", raising=False)
+    monkeypatch.delenv("AI_SRE_TRUST_API_KEY", raising=False)
     assert TrustSettings.from_env() is None
-    with pytest.raises(ConfigurationError, match="INVESTIGATOR_TRUST_API_KEY"):
+    with pytest.raises(ConfigurationError, match="AI_SRE_TRUST_API_KEY"):
         TrustSettings.from_env(required=True)
 
 
@@ -284,8 +284,8 @@ def test_trust_scan_wraps_the_switch_trust_cli(monkeypatch):
         calls.append(command)
         return Result()
 
-    monkeypatch.setattr("kube_investigator.cli.shutil.which", lambda name: "/opt/bin/switch-trust")
-    monkeypatch.setattr("kube_investigator.cli.subprocess.run", fake_run)
+    monkeypatch.setattr("ai_sre.cli.shutil.which", lambda name: "/opt/bin/switch-trust")
+    monkeypatch.setattr("ai_sre.cli.subprocess.run", fake_run)
     assert (
         main(
             [
@@ -316,15 +316,15 @@ def test_trust_scan_wraps_the_switch_trust_cli(monkeypatch):
 
 
 def test_trust_scan_fails_closed_without_the_cli(monkeypatch, capsys):
-    monkeypatch.setattr("kube_investigator.cli.shutil.which", lambda name: None)
+    monkeypatch.setattr("ai_sre.cli.shutil.which", lambda name: None)
     assert main(["switch", "trust", "scan", "--path", "src"]) == 1
     assert "Switch Trust CLI is not installed" in capsys.readouterr().err
 
 
 def test_trust_status_fails_closed_without_configuration(monkeypatch, capsys):
-    monkeypatch.delenv("INVESTIGATOR_TRUST_API_KEY", raising=False)
+    monkeypatch.delenv("AI_SRE_TRUST_API_KEY", raising=False)
     assert main(["switch", "trust", "status", "--json"]) == 1
-    assert "INVESTIGATOR_TRUST_API_KEY" in capsys.readouterr().err
+    assert "AI_SRE_TRUST_API_KEY" in capsys.readouterr().err
 
 
 def test_trust_publish_console_attaches_the_summary_to_console_governance(monkeypatch, capsys):
@@ -380,17 +380,17 @@ def test_trust_publish_console_attaches_the_summary_to_console_governance(monkey
         def close(self):
             pass
 
-    monkeypatch.setenv("INVESTIGATOR_TRUST_API_KEY", "sk_test_only_never_print")
-    monkeypatch.setattr("kube_investigator.cli.TrustClient", FakeTrust)
+    monkeypatch.setenv("AI_SRE_TRUST_API_KEY", "sk_test_only_never_print")
+    monkeypatch.setattr("ai_sre.cli.TrustClient", FakeTrust)
 
     class Settings:
         server_url = "http://console.test"
 
     monkeypatch.setattr(
-        "kube_investigator.cli.ConsoleSettings.from_env",
+        "ai_sre.cli.ConsoleSettings.from_env",
         lambda required=False: Settings(),
     )
-    monkeypatch.setattr("kube_investigator.cli.ConsoleClient", FakeConsole)
+    monkeypatch.setattr("ai_sre.cli.ConsoleClient", FakeConsole)
     assert main(["switch", "trust", "publish", "--console", "--json"]) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["switch_room_id"] == "console-governance"
@@ -428,9 +428,9 @@ def test_trust_publish_writes_a_read_only_document_to_governance_room(
 
     runtime = FakeSwitchRuntime()
     runtime.bootstrap()
-    monkeypatch.setenv("INVESTIGATOR_TRUST_API_KEY", "sk_test_only_never_print")
-    monkeypatch.setattr("kube_investigator.cli.TrustClient", FakeTrust)
-    monkeypatch.setattr("kube_investigator.cli.build_switch_runtime", lambda settings: runtime)
+    monkeypatch.setenv("AI_SRE_TRUST_API_KEY", "sk_test_only_never_print")
+    monkeypatch.setattr("ai_sre.cli.TrustClient", FakeTrust)
+    monkeypatch.setattr("ai_sre.cli.build_switch_runtime", lambda settings: runtime)
 
     assert (
         main(
@@ -468,9 +468,9 @@ def test_trust_publish_fails_closed_when_switch_is_off(tmp_path, monkeypatch, ca
         def close(self):
             pass
 
-    monkeypatch.setenv("INVESTIGATOR_TRUST_API_KEY", "sk_test_only_never_print")
-    monkeypatch.setenv("INVESTIGATOR_SWITCH_MODE", "off")
-    monkeypatch.setattr("kube_investigator.cli.TrustClient", FakeTrust)
+    monkeypatch.setenv("AI_SRE_TRUST_API_KEY", "sk_test_only_never_print")
+    monkeypatch.setenv("AI_SRE_SWITCH_MODE", "off")
+    monkeypatch.setattr("ai_sre.cli.TrustClient", FakeTrust)
     assert main(["switch", "trust", "publish", "--state-dir", str(tmp_path)]) == 1
     assert "Switch is off" in capsys.readouterr().err
 
@@ -495,8 +495,8 @@ def test_roi_command_reports_advisory_caps(monkeypatch, capsys):
         def close(self):
             pass
 
-    monkeypatch.setenv("INVESTIGATOR_TRUST_API_KEY", "sk_test_only_never_print")
-    monkeypatch.setattr("kube_investigator.cli.TrustClient", FakeTrust)
+    monkeypatch.setenv("AI_SRE_TRUST_API_KEY", "sk_test_only_never_print")
+    monkeypatch.setattr("ai_sre.cli.TrustClient", FakeTrust)
     assert (
         main(
             [

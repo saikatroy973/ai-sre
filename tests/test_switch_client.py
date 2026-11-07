@@ -4,9 +4,9 @@ import stat
 import httpx
 import pytest
 
-from kube_investigator.errors import ConfigurationError, SwitchError
-from kube_investigator.switch.client import RoomSession, SwitchClient, _RoomSocket
-from kube_investigator.switch.identity import AgentCredential, CredentialStore
+from ai_sre.errors import ConfigurationError, SwitchError
+from ai_sre.switch.client import RoomSession, SwitchClient, _RoomSocket
+from ai_sre.switch.identity import AgentCredential, CredentialStore
 
 BASE = "http://switch.test:18000"
 

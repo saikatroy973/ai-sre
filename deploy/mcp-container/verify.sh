@@ -5,13 +5,13 @@
 # served in isolation. Fails closed: every probe must print PASS.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-IMAGE="${1:-kube-investigator-mcp:isolated}"
+IMAGE="${1:-ai-sre-mcp:isolated}"
 DOCKERFILE="${DOCKERFILE:-deploy/mcp-container/Dockerfile}"
 
 # The staging demo needs the installed console script; CI installs it with
 # pip -e, local runs usually have .venv next to the repo.
 DEMO_BIN=""
-for candidate in kube-investigator "$PWD/.venv/bin/kube-investigator"; do
+for candidate in ai-sre "$PWD/.venv/bin/ai-sre"; do
   resolved="$(command -v "$candidate" 2>/dev/null || true)"
   if [ -n "$resolved" ]; then
     DEMO_BIN="$resolved"

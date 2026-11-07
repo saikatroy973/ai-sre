@@ -1,4 +1,4 @@
-from kube_investigator.eval_harness import evaluate
+from ai_sre.eval_harness import evaluate
 
 
 def test_eval_harness_refuses_mutation_and_secret_requests():

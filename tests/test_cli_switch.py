@@ -1,13 +1,13 @@
 import json
 from pathlib import Path
 
-from kube_investigator.cli import main
-from kube_investigator.mcp_server import search_memory
-from kube_investigator.switch.runtime import FakeSwitchRuntime
+from ai_sre.cli import main
+from ai_sre.mcp_server import search_memory
+from ai_sre.switch.runtime import FakeSwitchRuntime
 
 
 def test_switch_status_reports_off_without_touching_the_network(tmp_path, monkeypatch, capsys):
-    monkeypatch.setenv("INVESTIGATOR_SWITCH_MODE", "off")
+    monkeypatch.setenv("AI_SRE_SWITCH_MODE", "off")
     assert main(["switch", "status", "--json", "--state-dir", str(tmp_path / "switch")]) == 0
     assert json.loads(capsys.readouterr().out) == {"mode": "off"}
 
@@ -20,7 +20,7 @@ def test_switch_bootstrap_fails_closed_without_a_registration_token(tmp_path, ca
 
 def test_switch_demo_uses_the_room_runtime_when_available(tmp_path, monkeypatch, capsys):
     fake = FakeSwitchRuntime()
-    monkeypatch.setattr("kube_investigator.coordinator.build_switch_runtime", lambda settings: fake)
+    monkeypatch.setattr("ai_sre.coordinator.build_switch_runtime", lambda settings: fake)
     assert (
         main(
             [
@@ -63,7 +63,7 @@ def test_memory_cli_approves_lists_and_searches_a_supported_report(tmp_path, mon
     data = tmp_path / "data"
     assert main(["demo", "--json", "--data-dir", str(data)]) == 0
     first = json.loads(capsys.readouterr().out)
-    monkeypatch.setenv("INVESTIGATOR_SWITCH_MODE", "off")
+    monkeypatch.setenv("AI_SRE_SWITCH_MODE", "off")
 
     assert (
         main(
@@ -131,7 +131,7 @@ def test_memory_cli_publishes_an_approved_record_to_console(tmp_path, monkeypatc
     data = tmp_path / "data"
     assert main(["demo", "--json", "--data-dir", str(data)]) == 0
     first = json.loads(capsys.readouterr().out)
-    monkeypatch.setenv("INVESTIGATOR_SWITCH_MODE", "off")
+    monkeypatch.setenv("AI_SRE_SWITCH_MODE", "off")
     assert (
         main(
             [
@@ -180,10 +180,10 @@ def test_memory_cli_publishes_an_approved_record_to_console(tmp_path, monkeypatc
             pass
 
     monkeypatch.setattr(
-        "kube_investigator.cli.ConsoleSettings.from_env",
+        "ai_sre.cli.ConsoleSettings.from_env",
         lambda required=True: Settings(),
     )
-    monkeypatch.setattr("kube_investigator.cli.ConsoleClient", FakeConsole)
+    monkeypatch.setattr("ai_sre.cli.ConsoleClient", FakeConsole)
     assert (
         main(
             [
@@ -211,7 +211,7 @@ def test_memory_cli_approves_and_publishes_to_console(tmp_path, monkeypatch, cap
     data = tmp_path / "data"
     assert main(["demo", "--json", "--data-dir", str(data)]) == 0
     first = json.loads(capsys.readouterr().out)
-    monkeypatch.setenv("INVESTIGATOR_SWITCH_MODE", "off")
+    monkeypatch.setenv("AI_SRE_SWITCH_MODE", "off")
 
     class Settings:
         server_url = "http://console.test"
@@ -233,10 +233,10 @@ def test_memory_cli_approves_and_publishes_to_console(tmp_path, monkeypatch, cap
             pass
 
     monkeypatch.setattr(
-        "kube_investigator.cli.ConsoleSettings.from_env",
+        "ai_sre.cli.ConsoleSettings.from_env",
         lambda required=True: Settings(),
     )
-    monkeypatch.setattr("kube_investigator.cli.ConsoleClient", FakeConsole)
+    monkeypatch.setattr("ai_sre.cli.ConsoleClient", FakeConsole)
     assert (
         main(
             [
@@ -268,7 +268,7 @@ def test_memory_audit_lists_mcp_search_entries(tmp_path, monkeypatch, capsys):
     data = tmp_path / "data"
     assert main(["demo", "--json", "--data-dir", str(data)]) == 0
     first = json.loads(capsys.readouterr().out)
-    monkeypatch.setenv("INVESTIGATOR_SWITCH_MODE", "off")
+    monkeypatch.setenv("AI_SRE_SWITCH_MODE", "off")
     assert (
         main(
             [
@@ -291,15 +291,15 @@ def test_memory_audit_lists_mcp_search_entries(tmp_path, monkeypatch, capsys):
         == 0
     )
     capsys.readouterr()
-    monkeypatch.setenv("INVESTIGATOR_DATA_DIR", str(data))
-    monkeypatch.setenv("INVESTIGATOR_MCP_ACTOR", "memory-researcher")
+    monkeypatch.setenv("AI_SRE_DATA_DIR", str(data))
+    monkeypatch.setenv("AI_SRE_MCP_ACTOR", "memory-researcher")
     result = search_memory(
         cluster="demo-cluster",
         namespace="shop",
         query="checkout selector",
     )
     assert result["count"] == 1
-    monkeypatch.delenv("INVESTIGATOR_MCP_ACTOR", raising=False)
+    monkeypatch.delenv("AI_SRE_MCP_ACTOR", raising=False)
 
     assert (
         main(
@@ -363,7 +363,7 @@ def test_memory_audit_chain_detects_tampering(tmp_path, monkeypatch, capsys):
     data = tmp_path / "data"
     assert main(["demo", "--json", "--data-dir", str(data)]) == 0
     first = json.loads(capsys.readouterr().out)
-    monkeypatch.setenv("INVESTIGATOR_SWITCH_MODE", "off")
+    monkeypatch.setenv("AI_SRE_SWITCH_MODE", "off")
     assert (
         main(
             [
@@ -386,7 +386,7 @@ def test_memory_audit_chain_detects_tampering(tmp_path, monkeypatch, capsys):
         == 0
     )
     capsys.readouterr()
-    monkeypatch.setenv("INVESTIGATOR_DATA_DIR", str(data))
+    monkeypatch.setenv("AI_SRE_DATA_DIR", str(data))
     assert (
         search_memory(
             cluster="demo-cluster",
@@ -427,7 +427,7 @@ def test_memory_approval_is_not_indexed_when_required_switch_is_unavailable(
     data = tmp_path / "data"
     assert main(["demo", "--json", "--data-dir", str(data)]) == 0
     first = json.loads(capsys.readouterr().out)
-    monkeypatch.setenv("INVESTIGATOR_SWITCH_MODE", "required")
+    monkeypatch.setenv("AI_SRE_SWITCH_MODE", "required")
     assert (
         main(
             [
@@ -451,7 +451,7 @@ def test_memory_approval_is_not_indexed_when_required_switch_is_unavailable(
     )
     assert "not all agents are registered" in capsys.readouterr().err
 
-    monkeypatch.setenv("INVESTIGATOR_SWITCH_MODE", "off")
+    monkeypatch.setenv("AI_SRE_SWITCH_MODE", "off")
     assert (
         main(
             [
@@ -472,7 +472,7 @@ def test_memory_approval_refuses_an_unsupported_report(tmp_path, monkeypatch, ca
     data = tmp_path / "data"
     assert main(["demo", "--scenario", "healthy", "--json", "--data-dir", str(data)]) == 0
     first = json.loads(capsys.readouterr().out)
-    monkeypatch.setenv("INVESTIGATOR_SWITCH_MODE", "off")
+    monkeypatch.setenv("AI_SRE_SWITCH_MODE", "off")
     assert (
         main(
             [
@@ -504,7 +504,7 @@ def test_switch_up_collab_selects_the_mattermost_profile(tmp_path, monkeypatch, 
         calls.append(command)
         return Result()
 
-    monkeypatch.setattr("kube_investigator.cli.subprocess.run", fake_run)
+    monkeypatch.setattr("ai_sre.cli.subprocess.run", fake_run)
     state = tmp_path / "switch"
     assert (
         main(
@@ -545,7 +545,7 @@ def test_compose_file_exists_for_the_switch_up_command():
 def test_generated_switch_environment_satisfies_the_compose_stack(tmp_path):
     import re
 
-    from kube_investigator.cli import _ensure_switch_env
+    from ai_sre.cli import _ensure_switch_env
 
     state = tmp_path / "switch"
     env_file = _ensure_switch_env(
@@ -587,7 +587,7 @@ def test_generated_switch_environment_satisfies_the_compose_stack(tmp_path):
 
 
 def test_existing_switch_environment_gets_missing_mattermost_values(tmp_path):
-    from kube_investigator.cli import _ensure_switch_env
+    from ai_sre.cli import _ensure_switch_env
 
     state = tmp_path / "switch"
     state.mkdir()

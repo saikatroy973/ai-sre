@@ -85,12 +85,12 @@ def stage(source_path: Path, evidence_dir: Path) -> dict[str, str]:
     snapshot.chmod(0o444)
     digest = _sha256(snapshot)
     values = {
-        "INVESTIGATOR_EVIDENCE_PROBE_ID": str(row[0]),
-        "INVESTIGATOR_EVIDENCE_PROBE_DIAGNOSIS": str(diagnosis),
-        "INVESTIGATOR_EVIDENCE_PROBE_SHA256": digest,
-        "INVESTIGATOR_TENANT": str(scope["tenant"]),
-        "INVESTIGATOR_CLUSTER": str(scope["cluster"]),
-        "INVESTIGATOR_NAMESPACES": str(scope["namespace"]),
+        "AI_SRE_EVIDENCE_PROBE_ID": str(row[0]),
+        "AI_SRE_EVIDENCE_PROBE_DIAGNOSIS": str(diagnosis),
+        "AI_SRE_EVIDENCE_PROBE_SHA256": digest,
+        "AI_SRE_TENANT": str(scope["tenant"]),
+        "AI_SRE_CLUSTER": str(scope["cluster"]),
+        "AI_SRE_NAMESPACES": str(scope["namespace"]),
     }
     allowed = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ@._:-"
     for key, value in values.items():

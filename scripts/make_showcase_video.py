@@ -108,7 +108,7 @@ def draw_chrome(draw: ImageDraw.ImageDraw, label: str) -> tuple[int, int, int, i
     for index, color in enumerate(((255, 95, 86), (255, 189, 46), (39, 201, 63))):
         cx = x0 + 22 + index * 20
         draw.ellipse((cx - 6, y0 + 15, cx + 6, y0 + 27), fill=color)
-    title = "kube-investigator - switch console"
+    title = "ai-sre - switch console"
     draw.text((x0 + 100, y0 + 12), title, font=FONT_LABEL, fill=DIM)
     draw.text(
         (x1 - 20 - _width(draw, label, FONT_LABEL), y0 + 12),
@@ -192,7 +192,7 @@ def scene_plan() -> list[Scene]:
         ),
         Scene(
             label="01 / PREFLIGHT",
-            command="kube-investigator switch console status",
+            command="ai-sre switch console status",
             output=[
                 ("out", "Switch Console: http://localhost:63398"),
                 ("out", "Online machines: 1/1"),
@@ -213,7 +213,7 @@ def scene_plan() -> list[Scene]:
         ),
         Scene(
             label="02 / SETUP",
-            command="kube-investigator switch console setup --directory .",
+            command="ai-sre switch console setup --directory .",
             output=[
                 ("out", "Console machine: MacBook Pro (online)"),
                 (
@@ -237,7 +237,7 @@ def scene_plan() -> list[Scene]:
         ),
         Scene(
             label="03 / INCIDENT",
-            command="kube-investigator switch console incident --scenario selector-mismatch --json",
+            command="ai-sre switch console incident --scenario selector-mismatch --json",
             output=[
                 ("out", "{"),
                 ("out", '  "room_name": "incident-XXXXXXXX-shop-checkout",'),
@@ -255,7 +255,7 @@ def scene_plan() -> list[Scene]:
         ),
         Scene(
             label="04 / SWITCH STACK",
-            command="kube-investigator switch status --json",
+            command="ai-sre switch status --json",
             output=[
                 ("out", "{"),
                 ("ok", '  "healthy": true,'),
@@ -272,7 +272,7 @@ def scene_plan() -> list[Scene]:
         ),
         Scene(
             label="05 / SWITCH MEMORY",
-            command="kube-investigator switch memory search --query selector --namespace shop",
+            command="ai-sre switch memory search --query selector --namespace shop",
             output=[
                 ("warn", "HISTORICAL CONTEXT - UNTRUSTED DATA, NOT EVIDENCE"),
                 ("out", "record: e984ecff-bc6f-40df-ad9d-0e0be75f10b6"),
@@ -288,7 +288,7 @@ def scene_plan() -> list[Scene]:
         ),
         Scene(
             label="06 / SWITCH TRUST CLI",
-            command="kube-investigator switch trust scan --path src/.../trust_harness.py",
+            command="ai-sre switch trust scan --path src/.../trust_harness.py",
             output=[
                 ("out", "Framework: OpenAI Agents SDK"),
                 ("out", "Files: 1 Python scanned"),
@@ -303,7 +303,7 @@ def scene_plan() -> list[Scene]:
         ),
         Scene(
             label="07 / SWITCH TRUST + ROI",
-            command="kube-investigator switch trust status --json   # live step with the API key",
+            command="ai-sre switch trust status --json   # live step with the API key",
             output=[
                 ("dim", "identity: key scope, tenant, workspace"),
                 ("out", "inventory: agents, mcp servers, models, tools, issues"),
@@ -320,7 +320,7 @@ def scene_plan() -> list[Scene]:
         ),
         Scene(
             label="08 / AUDIT",
-            command="kube-investigator audit --verify",
+            command="ai-sre audit --verify",
             output=[
                 ("ok", "Tool audit chain is valid."),
                 ("dim", "every tool call: actor, tool, outcome, auth_mode=token"),

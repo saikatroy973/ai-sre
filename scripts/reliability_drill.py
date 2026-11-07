@@ -58,7 +58,7 @@ from pathlib import Path
 from typing import Any
 
 REPO = Path(__file__).resolve().parents[1]
-KUBE = REPO / ".venv" / "bin" / "kube-investigator"
+KUBE = REPO / ".venv" / "bin" / "ai-sre"
 DRILL_TIMESTAMP = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
 HISTORY_LIMIT = 100
 
@@ -83,13 +83,13 @@ def _env(drill_data: Path) -> dict[str, str]:
     env = dict(os.environ)
     env.update(
         {
-            "INVESTIGATOR_DATA_DIR": str(drill_data),
-            "INVESTIGATOR_BACKEND": "fixture",
-            "INVESTIGATOR_SCENARIO": "selector-mismatch",
-            "INVESTIGATOR_REASONER": "deterministic",
-            "INVESTIGATOR_SWITCH_MODE": "required",
-            "INVESTIGATOR_SWITCH_BASE_URL": "http://127.0.0.1:18000",
-            "INVESTIGATOR_SWITCH_STATE_DIR": str(REPO / ".data" / "switch"),
+            "AI_SRE_DATA_DIR": str(drill_data),
+            "AI_SRE_BACKEND": "fixture",
+            "AI_SRE_SCENARIO": "selector-mismatch",
+            "AI_SRE_REASONER": "deterministic",
+            "AI_SRE_SWITCH_MODE": "required",
+            "AI_SRE_SWITCH_BASE_URL": "http://127.0.0.1:18000",
+            "AI_SRE_SWITCH_STATE_DIR": str(REPO / ".data" / "switch"),
         }
     )
     return env
@@ -115,7 +115,7 @@ def _run(
 
 
 def _open_store(data_dir: Path):
-    from kube_investigator.storage import Store
+    from ai_sre.storage import Store
 
     return Store(data_dir)
 
@@ -145,7 +145,7 @@ def _spawn_worker(
 ) -> subprocess.Popen:
     worker_env = dict(base_env)
     # The harness label ties queue rows to this worker while they run.
-    worker_env["INVESTIGATOR_QUEUE_WORKER_LABEL"] = label
+    worker_env["AI_SRE_QUEUE_WORKER_LABEL"] = label
     handle = subprocess.Popen(
         [str(KUBE), "queue", "run", "--data-dir", str(drill_data), "--json"],
         cwd=REPO,
@@ -181,7 +181,7 @@ def part_protocol(rooms: int, workers: int, lease_seconds: int) -> dict[str, Any
         _fail("lease is seconds; keep >=20 so the crash leg can observe a real expiry")
     drill_data = Path(tempfile.mkdtemp(prefix=f"kube-drill-{DRILL_TIMESTAMP}-"))
     env = _env(drill_data)
-    env["INVESTIGATOR_QUEUE_LEASE_SECONDS"] = str(lease_seconds)
+    env["AI_SRE_QUEUE_LEASE_SECONDS"] = str(lease_seconds)
     print(f"[{_ts()}] data dir: {drill_data}", flush=True)
     drill_started = time.monotonic()
 
@@ -388,7 +388,7 @@ def _assess(drill_data: Path, rooms: int) -> dict[str, Any]:
     and per-room canary isolation read back from the live rooms."""
     from uuid import UUID as _UUID
 
-    from kube_investigator.storage import Store
+    from ai_sre.storage import Store
 
     store = Store(drill_data)
     status = store.queue_jobs()
@@ -424,8 +424,8 @@ def _assess(drill_data: Path, rooms: int) -> dict[str, Any]:
 
     # Live read-back: each room's own canary must be present and every other
     # drill room's canary absent.
-    from kube_investigator.config import Settings as DrillSettings
-    from kube_investigator.switch.runtime import build_switch_runtime
+    from ai_sre.config import Settings as DrillSettings
+    from ai_sre.switch.runtime import build_switch_runtime
 
     settings = DrillSettings(
         data_dir=drill_data,
@@ -475,11 +475,11 @@ def _assess(drill_data: Path, rooms: int) -> dict[str, Any]:
 
 
 def part_switch_restart(data_dir: Path | None) -> dict[str, Any]:
-    from kube_investigator.config import Settings as DrillSettings
-    from kube_investigator.switch.runtime import build_switch_runtime
+    from ai_sre.config import Settings as DrillSettings
+    from ai_sre.switch.runtime import build_switch_runtime
 
     settings = DrillSettings(
-        data_dir=data_dir or Path(os.getenv("INVESTIGATOR_DATA_DIR", ".data")),
+        data_dir=data_dir or Path(os.getenv("AI_SRE_DATA_DIR", ".data")),
         backend="fixture",
         scenario="selector-mismatch",
         reasoner="deterministic",
@@ -563,14 +563,14 @@ def part_switch_restart(data_dir: Path | None) -> dict[str, Any]:
 
 
 def _console_client():
-    from kube_investigator.switch.console import ConsoleSettings
+    from ai_sre.switch.console import ConsoleSettings
 
     settings = ConsoleSettings.from_env(required=True)
     return settings
 
 
 def _console_status_payload():
-    from kube_investigator.switch.console import ConsoleClient
+    from ai_sre.switch.console import ConsoleClient
 
     settings = _console_client()
     client = ConsoleClient(settings)
@@ -692,8 +692,8 @@ def part_console_agent(console_kickoff: bool) -> dict[str, Any]:
 
 
 def part_console_rooms(rooms: int) -> dict[str, Any]:
-    from kube_investigator.switch.console import ConsoleClient
-    from kube_investigator.switch.specs import CORE_ROOMS, INCIDENT_KIT_NAME
+    from ai_sre.switch.console import ConsoleClient
+    from ai_sre.switch.specs import CORE_ROOMS, INCIDENT_KIT_NAME
 
     def create(_index: int) -> str:
         return str(_kickoff_console_incident())

@@ -4,12 +4,12 @@ from uuid import uuid4
 
 import pytest
 
-from kube_investigator.auth import Principal
-from kube_investigator.coordinator import build_coordinator
-from kube_investigator.errors import AuthorizationError, BusyError, InvestigatorError, NotFoundError
-from kube_investigator.messaging import MessageBus
-from kube_investigator.models import AgentRole, EvidenceKind, InvestigationState
-from kube_investigator.storage import Store
+from ai_sre.auth import Principal
+from ai_sre.coordinator import build_coordinator
+from ai_sre.errors import AuthorizationError, BusyError, InvestigatorError, NotFoundError
+from ai_sre.messaging import MessageBus
+from ai_sre.models import AgentRole, EvidenceKind, InvestigationState
+from ai_sre.storage import Store
 
 
 @pytest.mark.parametrize(

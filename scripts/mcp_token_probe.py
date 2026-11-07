@@ -2,9 +2,9 @@
 """Probe a Console agent's MCP configuration over a real stdio spawn.
 
 Reads a per-agent ``opencode.json`` written by
-``kube-investigator switch console setup --actor-tokens``, spawns the actual
-``kube_investigator.mcp_server`` as the agent runtime would, and proves the
-actor-token contract by calling ``kube_investigator_memory``:
+``ai-sre switch console setup --actor-tokens``, spawns the actual
+``ai_sre.mcp_server`` as the agent runtime would, and proves the
+actor-token contract by calling ``ai_sre_memory``:
 
 ``ok``      a valid token is accepted and the search succeeds;
 ``missing`` no token configured -> the call fails closed;
@@ -31,7 +31,7 @@ INIT_REQUEST = {
     "params": {
         "protocolVersion": "2024-11-05",
         "capabilities": {},
-        "clientInfo": {"name": "kube-investigator-probe", "version": "0"},
+        "clientInfo": {"name": "ai-sre-probe", "version": "0"},
     },
 }
 INITIALIZED = {"jsonrpc": "2.0", "method": "notifications/initialized"}
@@ -40,7 +40,7 @@ MEMORY_CALL = {
     "id": 2,
     "method": "tools/call",
     "params": {
-        "name": "kube_investigator_memory",
+        "name": "ai_sre_memory",
         "arguments": {
             "cluster": "demo-cluster",
             "namespace": "shop",
@@ -68,9 +68,9 @@ def _read_response(pipe, wanted_id: int) -> dict:
 
 def run(config_path: Path, expect: str, *, process_env: dict[str, str]) -> dict:
     payload = json.loads(config_path.read_text())
-    server = payload.get("mcp", {}).get("kube-investigator")
+    server = payload.get("mcp", {}).get("ai-sre")
     if not server or server.get("type") != "local":
-        raise SystemExit(f"{config_path} does not configure a local kube-investigator server")
+        raise SystemExit(f"{config_path} does not configure a local ai-sre server")
     command = list(server.get("command") or [])
     if not command:
         raise SystemExit(f"{config_path} does not carry an MCP command")
@@ -144,13 +144,13 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    from kube_investigator.switch.agent_config import load_config_environment
+    from ai_sre.switch.agent_config import load_config_environment
 
     environment = load_config_environment(args.config)
     if args.drop_token:
-        environment.pop("INVESTIGATOR_MCP_ACTOR_TOKEN", None)
+        environment.pop("AI_SRE_MCP_ACTOR_TOKEN", None)
     if args.override_actor:
-        environment["INVESTIGATOR_MCP_ACTOR"] = args.override_actor
+        environment["AI_SRE_MCP_ACTOR"] = args.override_actor
     run(args.config, args.expect, process_env=environment)
     print(f"probe OK: {args.config} expect={args.expect}")
     return 0

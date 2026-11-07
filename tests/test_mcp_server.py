@@ -8,8 +8,8 @@ from uuid import UUID
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-from kube_investigator.config import Settings
-from kube_investigator.mcp_server import (
+from ai_sre.config import Settings
+from ai_sre.mcp_server import (
     get_investigation,
     mcp,
     run_investigation,
@@ -17,16 +17,16 @@ from kube_investigator.mcp_server import (
     source_status,
     verify_candidate,
 )
-from kube_investigator.models import Scope
-from kube_investigator.storage import Store
-from kube_investigator.switch.memory import MemoryStore
+from ai_sre.models import Scope
+from ai_sre.storage import Store
+from ai_sre.switch.memory import MemoryStore
 
 
 def configure_fixture(monkeypatch, tmp_path):
-    monkeypatch.setenv("INVESTIGATOR_DATA_DIR", str(tmp_path / "mcp-data"))
-    monkeypatch.setenv("INVESTIGATOR_BACKEND", "fixture")
-    monkeypatch.setenv("INVESTIGATOR_SCENARIO", "selector-mismatch")
-    monkeypatch.setenv("INVESTIGATOR_REASONER", "deterministic")
+    monkeypatch.setenv("AI_SRE_DATA_DIR", str(tmp_path / "mcp-data"))
+    monkeypatch.setenv("AI_SRE_BACKEND", "fixture")
+    monkeypatch.setenv("AI_SRE_SCENARIO", "selector-mismatch")
+    monkeypatch.setenv("AI_SRE_REASONER", "deterministic")
 
 
 def test_mcp_investigation_returns_cited_read_only_report(monkeypatch, tmp_path):
@@ -351,7 +351,7 @@ def test_mcp_memory_pagination_and_audit(monkeypatch, tmp_path):
 
 def test_memory_audit_rotates_and_verifies_across_files(monkeypatch, tmp_path):
     configure_fixture(monkeypatch, tmp_path)
-    monkeypatch.setenv("INVESTIGATOR_MCP_AUDIT_MAX_BYTES", "1")
+    monkeypatch.setenv("AI_SRE_MCP_AUDIT_MAX_BYTES", "1")
     settings = Settings.from_env()
     store = Store(settings.data_dir)
     result = run_investigation(
@@ -405,15 +405,15 @@ def test_mcp_exposes_only_read_only_investigation_tools():
     tools = asyncio.run(mcp.list_tools())
     names = {tool.name for tool in tools}
     assert names == {
-        "kube_investigator_health",
-        "kube_investigator_run",
-        "kube_investigator_get",
-        "kube_investigator_verify",
-        "kube_investigator_memory",
-        "kube_investigator_source_status",
-        "kube_investigator_docs",
-        "kube_investigator_logs",
-        "kube_investigator_metrics",
+        "ai_sre_health",
+        "ai_sre_run",
+        "ai_sre_get",
+        "ai_sre_verify",
+        "ai_sre_memory",
+        "ai_sre_source_status",
+        "ai_sre_docs",
+        "ai_sre_logs",
+        "ai_sre_metrics",
     }
     forbidden = ("apply", "delete", "exec", "patch", "scale", "secret", "write")
     assert not [name for name in names if any(word in name for word in forbidden)]
@@ -467,12 +467,12 @@ def test_mcp_protocol_memory_schema_and_tenant_contract(monkeypatch, tmp_path):
 
     async def check() -> str:
         env = dict(os.environ)
-        env["INVESTIGATOR_DATA_DIR"] = str(settings.data_dir)
-        env["INVESTIGATOR_TENANT"] = "local"
-        env["INVESTIGATOR_SWITCH_MODE"] = "off"
+        env["AI_SRE_DATA_DIR"] = str(settings.data_dir)
+        env["AI_SRE_TENANT"] = "local"
+        env["AI_SRE_SWITCH_MODE"] = "off"
         params = StdioServerParameters(
             command=sys.executable,
-            args=["-m", "kube_investigator.mcp_server"],
+            args=["-m", "ai_sre.mcp_server"],
             env=env,
         )
         async with stdio_client(params) as (read, write):
@@ -480,7 +480,7 @@ def test_mcp_protocol_memory_schema_and_tenant_contract(monkeypatch, tmp_path):
                 await session.initialize()
                 tools = await session.list_tools()
                 memory = next(
-                    tool for tool in tools.tools if tool.name == "kube_investigator_memory"
+                    tool for tool in tools.tools if tool.name == "ai_sre_memory"
                 )
                 schema = memory.inputSchema
                 assert schema["properties"]["tenant"]["default"] is None
@@ -489,7 +489,7 @@ def test_mcp_protocol_memory_schema_and_tenant_contract(monkeypatch, tmp_path):
                 assert "cursor" not in schema["required"]
 
                 async def call(args: dict) -> dict:
-                    response = await session.call_tool("kube_investigator_memory", args)
+                    response = await session.call_tool("ai_sre_memory", args)
                     return json.loads(response.content[0].text)
 
                 base = {
@@ -535,10 +535,10 @@ def test_two_mcp_servers_isolate_tenants(monkeypatch, tmp_path):
     data_a = tmp_path / "tenant-a"
     data_b = tmp_path / "tenant-b"
     for data_dir, tenant in ((data_a, "tenant-a"), (data_b, "tenant-b")):
-        monkeypatch.setenv("INVESTIGATOR_DATA_DIR", str(data_dir))
-        monkeypatch.setenv("INVESTIGATOR_BACKEND", "fixture")
-        monkeypatch.setenv("INVESTIGATOR_SCENARIO", "selector-mismatch")
-        monkeypatch.setenv("INVESTIGATOR_REASONER", "deterministic")
+        monkeypatch.setenv("AI_SRE_DATA_DIR", str(data_dir))
+        monkeypatch.setenv("AI_SRE_BACKEND", "fixture")
+        monkeypatch.setenv("AI_SRE_SCENARIO", "selector-mismatch")
+        monkeypatch.setenv("AI_SRE_REASONER", "deterministic")
         result = run_investigation(
             question="Why is checkout failing?",
             cluster="demo-cluster",
@@ -568,18 +568,18 @@ def test_two_mcp_servers_isolate_tenants(monkeypatch, tmp_path):
 
     async def call(tenant: str, data_dir, args: dict) -> dict:
         env = dict(os.environ)
-        env["INVESTIGATOR_DATA_DIR"] = str(data_dir)
-        env["INVESTIGATOR_TENANT"] = tenant
-        env["INVESTIGATOR_SWITCH_MODE"] = "off"
+        env["AI_SRE_DATA_DIR"] = str(data_dir)
+        env["AI_SRE_TENANT"] = tenant
+        env["AI_SRE_SWITCH_MODE"] = "off"
         params = StdioServerParameters(
             command=sys.executable,
-            args=["-m", "kube_investigator.mcp_server"],
+            args=["-m", "ai_sre.mcp_server"],
             env=env,
         )
         async with stdio_client(params) as (read, write):
             async with ClientSession(read, write) as session:
                 await session.initialize()
-                response = await session.call_tool("kube_investigator_memory", args)
+                response = await session.call_tool("ai_sre_memory", args)
                 return json.loads(response.content[0].text)
 
     base = {"cluster": "demo-cluster", "namespace": "shop", "query": "checkout selector"}
@@ -619,7 +619,7 @@ def test_get_and_verify_read_the_configured_evidence_store_end_to_end(monkeypatc
         service="checkout",
         deployment="checkout",
     )
-    monkeypatch.setenv("INVESTIGATOR_EVIDENCE_STORE_DIR", str(tmp_path / "mcp-data"))
+    monkeypatch.setenv("AI_SRE_EVIDENCE_STORE_DIR", str(tmp_path / "mcp-data"))
     record = get_investigation(result["investigation_id"])
     assert record["ok"] is True
     assert record["state"] == "reported"
@@ -633,7 +633,7 @@ def test_get_and_verify_read_the_configured_evidence_store_end_to_end(monkeypatc
 def test_missing_evidence_store_fails_closed_without_inventing(tmp_path, monkeypatch):
     """Read-only stores never create their file, so a bad mount is a clean refusal."""
     configure_fixture(monkeypatch, tmp_path)
-    monkeypatch.setenv("INVESTIGATOR_EVIDENCE_STORE_DIR", str(tmp_path / "missing-mount"))
+    monkeypatch.setenv("AI_SRE_EVIDENCE_STORE_DIR", str(tmp_path / "missing-mount"))
     assert not (tmp_path / "missing-mount").exists()
     missing = get_investigation("00000000-0000-0000-0000-000000000001")
     assert missing["ok"] is False
@@ -656,7 +656,7 @@ def test_foreign_evidence_store_is_sanitized(monkeypatch, tmp_path):
     connection.execute("CREATE TABLE unrelated (x)")
     connection.commit()
     connection.close()
-    monkeypatch.setenv("INVESTIGATOR_EVIDENCE_STORE_DIR", str(foreign))
+    monkeypatch.setenv("AI_SRE_EVIDENCE_STORE_DIR", str(foreign))
 
     missing = get_investigation("00000000-0000-0000-0000-000000000001")
     assert missing == {"ok": False, "error": "investigation tool failed"}
@@ -669,6 +669,6 @@ def test_foreign_evidence_store_is_sanitized(monkeypatch, tmp_path):
 def test_unavailable_memory_store_is_sanitized(monkeypatch, tmp_path):
     blocking = tmp_path / "data-is-a-file"
     blocking.write_text("not a directory")
-    monkeypatch.setenv("INVESTIGATOR_DATA_DIR", str(blocking))
+    monkeypatch.setenv("AI_SRE_DATA_DIR", str(blocking))
     result = search_memory(cluster="demo-cluster", namespace="shop", query="checkout")
     assert result == {"ok": False, "error": "memory store unavailable"}

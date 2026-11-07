@@ -16,7 +16,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from kube_investigator.mcp_auth import generate_actor_keypair, sign_actor_token
+from ai_sre.mcp_auth import generate_actor_keypair, sign_actor_token
 
 
 def keygen(out_dir: Path) -> int:

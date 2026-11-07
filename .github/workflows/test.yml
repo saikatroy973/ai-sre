@@ -26,7 +26,7 @@ jobs:
       - run: ruff check .
       - run: ruff format --check .
       - run: pytest
-      - run: kube-investigator demo --json
+      - run: ai-sre demo --json
 
   isolation:
     # The OS-isolation gate: build the hardened MCP image and run all five

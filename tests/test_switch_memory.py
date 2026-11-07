@@ -4,10 +4,10 @@ from datetime import timedelta
 
 import pytest
 
-from kube_investigator.coordinator import build_coordinator
-from kube_investigator.errors import ConfigurationError, NotFoundError
-from kube_investigator.models import Scope, utc_now
-from kube_investigator.switch.memory import MemoryStore, memory_record_payload
+from ai_sre.coordinator import build_coordinator
+from ai_sre.errors import ConfigurationError, NotFoundError
+from ai_sre.models import Scope, utc_now
+from ai_sre.switch.memory import MemoryStore, memory_record_payload
 
 
 def completed(settings, principal, request_data, scenario="selector-mismatch"):
@@ -195,7 +195,7 @@ def test_tampered_records_fail_the_integrity_check(settings, principal, request_
 def test_unknown_records_are_not_found(settings):
     from uuid import uuid4
 
-    from kube_investigator.storage import Store
+    from ai_sre.storage import Store
 
     memory = MemoryStore(Store(settings.data_dir))
     with pytest.raises(NotFoundError):

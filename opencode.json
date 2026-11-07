@@ -1,22 +1,22 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "permission": {
-    "kube-investigator_": "allow",
-    "kube-investigator_kube_investigator_health": "allow",
-    "kube-investigator_kube_investigator_run": "allow",
-    "kube-investigator_kube_investigator_get": "allow",
-    "kube-investigator_kube_investigator_verify": "allow",
-    "kube-investigator_kube_investigator_memory": "allow",
-    "kube-investigator_kube_investigator_source_status": "allow",
-    "kube-investigator_kube_investigator_docs": "allow"
+    "ai-sre_": "allow",
+    "ai-sre_ai_sre_health": "allow",
+    "ai-sre_ai_sre_run": "allow",
+    "ai-sre_ai_sre_get": "allow",
+    "ai-sre_ai_sre_verify": "allow",
+    "ai-sre_ai_sre_memory": "allow",
+    "ai-sre_ai_sre_source_status": "allow",
+    "ai-sre_ai_sre_docs": "allow"
   },
   "mcp": {
-    "kube-investigator": {
+    "ai-sre": {
       "type": "local",
       "command": [
         ".venv/bin/python",
         "-m",
-        "kube_investigator.mcp_server"
+        "ai_sre.mcp_server"
       ],
       "enabled": true
     }

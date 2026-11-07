@@ -4,16 +4,16 @@ from uuid import uuid4
 
 import pytest
 
-from kube_investigator.errors import ConfigurationError, SwitchError
-from kube_investigator.models import InvestigationRequest, Scope, utc_now
-from kube_investigator.switch.identity import AgentCredential, CredentialStore
-from kube_investigator.switch.memory import MemoryRecord
-from kube_investigator.switch.runtime import (
+from ai_sre.errors import ConfigurationError, SwitchError
+from ai_sre.models import InvestigationRequest, Scope, utc_now
+from ai_sre.switch.identity import AgentCredential, CredentialStore
+from ai_sre.switch.memory import MemoryRecord
+from ai_sre.switch.runtime import (
     FakeSwitchRuntime,
     build_switch_runtime,
     incident_room_name,
 )
-from kube_investigator.switch.specs import CORE_ROOMS
+from ai_sre.switch.specs import CORE_ROOMS
 
 
 def record():
@@ -184,9 +184,9 @@ def test_switch_required_refuses_a_partial_credential_store(tmp_path, settings):
 
 
 def _investigation(request=None):
-    from kube_investigator.auth import Principal
-    from kube_investigator.config import Settings
-    from kube_investigator.models import Investigation
+    from ai_sre.auth import Principal
+    from ai_sre.config import Settings
+    from ai_sre.models import Investigation
 
     request = request or InvestigationRequest(
         question="Why is checkout failing?",

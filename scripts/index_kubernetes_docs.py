@@ -19,7 +19,7 @@ import argparse
 import time
 from pathlib import Path
 
-from kube_investigator.knowledge import build_index, index_path
+from ai_sre.knowledge import build_index, index_path
 
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_SOURCE = REPO / ".data" / "k8s-docs" / "src" / "content" / "en" / "docs"

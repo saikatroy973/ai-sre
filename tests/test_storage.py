@@ -2,8 +2,8 @@ import sqlite3
 
 import pytest
 
-from kube_investigator.models import InvestigationState
-from kube_investigator.storage import Store
+from ai_sre.models import InvestigationState
+from ai_sre.storage import Store
 
 
 def test_evidence_is_append_only(settings, investigation, evidence):
@@ -55,7 +55,7 @@ def test_readonly_store_reads_without_creating(settings, investigation):
 
 
 def test_readonly_store_fails_closed_when_the_store_is_missing(tmp_path):
-    from kube_investigator.errors import ConfigurationError
+    from ai_sre.errors import ConfigurationError
 
     missing = tmp_path / "no-such-store"
     with pytest.raises(ConfigurationError, match="does not exist"):

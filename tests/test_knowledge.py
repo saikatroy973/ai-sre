@@ -6,9 +6,9 @@ import time
 
 from cryptography.hazmat.primitives import serialization
 
-from kube_investigator.knowledge import build_index, parse_document, search_docs
-from kube_investigator.mcp_auth import generate_actor_keypair
-from kube_investigator.mcp_server import kube_investigator_docs
+from ai_sre.knowledge import build_index, parse_document, search_docs
+from ai_sre.mcp_auth import generate_actor_keypair
+from ai_sre.mcp_server import ai_sre_docs
 
 SERVICE_DOC = """---
 title: Service
@@ -88,9 +88,9 @@ def test_role_knowledge_is_scoped_and_cited(tmp_path):
 
 
 def configure(monkeypatch, tmp_path, index):
-    monkeypatch.setenv("INVESTIGATOR_DATA_DIR", str(tmp_path / "data"))
-    monkeypatch.setenv("INVESTIGATOR_DOCS_INDEX", str(index))
-    monkeypatch.setenv("INVESTIGATOR_SWITCH_MODE", "off")
+    monkeypatch.setenv("AI_SRE_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("AI_SRE_DOCS_INDEX", str(index))
+    monkeypatch.setenv("AI_SRE_SWITCH_MODE", "off")
 
 
 def token(private_path, tools):
@@ -113,7 +113,7 @@ def token(private_path, tools):
 def test_docs_tool_returns_cited_results_in_dev_mode(monkeypatch, tmp_path):
     index, _stats = make_docs(tmp_path)
     configure(monkeypatch, tmp_path, index)
-    result = kube_investigator_docs("service endpoints", 3)
+    result = ai_sre_docs("service endpoints", 3)
     assert result["ok"] is True
     assert result["count"] >= 1
     assert result["results"][0]["url"].startswith("https://kubernetes.io/docs/")
@@ -123,19 +123,19 @@ def test_docs_tool_requires_the_tool_claim(monkeypatch, tmp_path):
     index, _stats = make_docs(tmp_path)
     configure(monkeypatch, tmp_path, index)
     private_key, public_key = generate_actor_keypair(tmp_path / "auth")
-    monkeypatch.setenv("INVESTIGATOR_MCP_PUBLIC_KEY", public_key)
-    monkeypatch.setenv("INVESTIGATOR_MCP_ACTOR", "cluster-investigator")
+    monkeypatch.setenv("AI_SRE_MCP_PUBLIC_KEY", public_key)
+    monkeypatch.setenv("AI_SRE_MCP_ACTOR", "cluster-investigator")
     monkeypatch.setenv(
-        "INVESTIGATOR_MCP_ACTOR_TOKEN",
+        "AI_SRE_MCP_ACTOR_TOKEN",
         token(private_key, ["get"]),
     )
-    result = kube_investigator_docs("service endpoints", 3)
+    result = ai_sre_docs("service endpoints", 3)
     assert result["ok"] is False
     assert result["error"] == "MCP actor is not authorized for this tool"
 
 
 def test_docs_tool_reports_a_missing_index(monkeypatch, tmp_path):
     configure(monkeypatch, tmp_path, tmp_path / "missing.sqlite3")
-    result = kube_investigator_docs("service", 3)
+    result = ai_sre_docs("service", 3)
     assert result["ok"] is False
     assert "not built" in result["error"]

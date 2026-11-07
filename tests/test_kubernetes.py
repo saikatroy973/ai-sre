@@ -4,18 +4,18 @@ from types import SimpleNamespace
 
 import pytest
 
-from kube_investigator.collectors import (
+from ai_sre.collectors import (
     FixtureCollector,
     KubernetesCollector,
     ReadError,
     SDKKubernetesReader,
     query_for,
 )
-from kube_investigator.coordinator import Coordinator
-from kube_investigator.errors import ConfigurationError
-from kube_investigator.models import EvidenceKind
-from kube_investigator.reasoners import DeterministicReasoner
-from kube_investigator.storage import Store
+from ai_sre.coordinator import Coordinator
+from ai_sre.errors import ConfigurationError
+from ai_sre.models import EvidenceKind
+from ai_sre.reasoners import DeterministicReasoner
+from ai_sre.storage import Store
 
 
 class FakeReader:

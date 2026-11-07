@@ -5,7 +5,7 @@ An evidence-backed Kubernetes investigation team running in **Switch rooms** as 
 `memory-researcher`, and `evidence-verifier`.
 
 The product name is **AI SRE**; the CLI, Python package, MCP tool prefix and
-environment variables keep their historical `kube-investigator` / `INVESTIGATOR_*`
+environment variables keep their historical `ai-sre` / `AI_SRE_*`
 names for compatibility.
 
 This is a hackathon implementation of the Day-2 plan, **not a production-ready deployment**.
@@ -32,7 +32,7 @@ Requires Python 3.11 or later.
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e '.[dev]'
-kube-investigator demo
+ai-sre demo
 ```
 
 The demo investigates `checkout` in namespace `shop` on `demo-cluster`. It demonstrates ready
@@ -40,9 +40,9 @@ Deployment-owned pods, a mismatched Service selector, no ready endpoints, and a 
 **No Kubernetes, model, or Switch calls are made.**
 
 ```sh
-kube-investigator demo --scenario healthy
-kube-investigator demo --scenario ambiguous
-kube-investigator demo --json
+ai-sre demo --scenario healthy
+ai-sre demo --scenario ambiguous
+ai-sre demo --json
 ```
 
 The healthy and ambiguous scenarios intentionally return `insufficient_evidence` rather than
@@ -65,20 +65,20 @@ Prerequisites:
 
 - Switch Console is installed and running with a local server and an online machine.
 - The OpenCode provider is installed and signed in on that machine.
-- The repository venv exists (`.venv/bin/python -m kube_investigator.mcp_server`).
-- Console admin credentials are available through `INVESTIGATOR_CONSOLE_SERVER_URL`,
-  `INVESTIGATOR_CONSOLE_EMAIL`, and `INVESTIGATOR_CONSOLE_PASSWORD`, or through the local
+- The repository venv exists (`.venv/bin/python -m ai_sre.mcp_server`).
+- Console admin credentials are available through `AI_SRE_CONSOLE_SERVER_URL`,
+  `AI_SRE_CONSOLE_EMAIL`, and `AI_SRE_CONSOLE_PASSWORD`, or through the local
   Console server env file.
 
 ```sh
 # Show the Console server, machine, agents, and rooms.
-kube-investigator switch console status
+ai-sre switch console status
 
 # Create or verify the six Console-managed agents and the four core rooms.
-kube-investigator switch console setup
+ai-sre switch console setup
 
 # Create one incident room from the template and post the commander kickoff.
-kube-investigator switch console incident --scenario selector-mismatch
+ai-sre switch console incident --scenario selector-mismatch
 
 # Inspect the transcript inside Switch Console. The commander dispatches the
 # specialists, the verifier checks the cited evidence, and the final-report
@@ -129,21 +129,21 @@ The self-hosted stack is useful for testing the agent-protocol client without Co
 
 ```sh
 # Start Postgres, switch-core, and the Gateway (API :18000, Gateway :13000).
-kube-investigator switch up
+ai-sre switch up
 
 # Wait for the public health endpoint, then register the six protocol identities.
 curl -fsS http://127.0.0.1:18000/health
-export INVESTIGATOR_SWITCH_REGISTRATION_TOKEN="$(
+export AI_SRE_SWITCH_REGISTRATION_TOKEN="$(
   sed -n 's/^AGENT_REGISTRATION_TOKEN=//p' .data/switch/.env
 )"
-kube-investigator switch bootstrap
+ai-sre switch bootstrap
 
 # Run the deterministic fixture investigation through a real Switch room.
-kube-investigator switch-demo
+ai-sre switch-demo
 
 # Inspect liveness and the core room IDs.
-kube-investigator switch status
-kube-investigator switch down          # add --volumes to discard local state
+ai-sre switch status
+ai-sre switch down          # add --volumes to discard local state
 ```
 
 `switch up` writes a mode-0600 environment file at `.data/switch/.env` with generated database,
@@ -166,13 +166,13 @@ Switch is the system of record. The composed **Switch Incident Memory** layer ke
 records as documents and messages in `k8s-memory`, plus a scoped SQLite search index:
 
 ```sh
-kube-investigator switch memory approve \
+ai-sre switch memory approve \
   --investigation <investigation-id> \
   --reviewer alice \
   --title 'Checkout selector mismatch' \
   --summary 'The checkout Service selector excluded the ready Deployment.'
-kube-investigator switch memory list
-kube-investigator switch memory search --query 'checkout selector'
+ai-sre switch memory list
+ai-sre switch memory search --query 'checkout selector'
 ```
 
 Approval requires a `supported` report unless `--allow-unsupported` marks the record as a
@@ -199,7 +199,7 @@ evidence IDs, eleven message IDs, and the content hash. The live memory run also
 MCP lead payload omitted evidence/message IDs; `HistoricalLead` now returns all of them and the
 rendered context includes them.
 
-The MCP `kube_investigator_memory` tool takes an optional nullable tenant. Omitted or `null` uses
+The MCP `ai_sre_memory` tool takes an optional nullable tenant. Omitted or `null` uses
 the configured server tenant; an explicit tenant is trimmed and must match that server tenant, so
 the tool cannot search another tenant. Empty/blank tenants and queries, overlong queries, invalid
 scope values, and limits outside 1–20 fail closed with sanitized errors. Results include
@@ -213,8 +213,8 @@ Entries rotate at a configurable size and include `prev_sha256`/`entry_sha256`. 
 CLI `switch memory search` reads are audited too. Verify the chain with:
 
 ```sh
-kube-investigator switch memory audit --limit 20
-kube-investigator switch memory audit --verify
+ai-sre switch memory audit --limit 20
+ai-sre switch memory audit --verify
 ```
 
 The other MCP tools write the same kind of hash-chained, actor-attributed entry to
@@ -226,7 +226,7 @@ The evidence SQLite store stays read-only, so serving a staged snapshot still pr
 row. A failed audit write fails the tool closed, and the actor is the verified token subject rather
 than a fixed operator label. The hash chain detects edits and mid-chain breaks; without an external
 anchor it cannot detect tail truncation or whole-file deletion, and a same-uid writer can rewrite
-it. Set `INVESTIGATOR_AUDIT_ANCHOR_DIR` to a directory outside the writable data volume that the
+it. Set `AI_SRE_AUDIT_ANCHOR_DIR` to a directory outside the writable data volume that the
 server can still write (for example a separate mount or account) to store each log's entry count
 and tail digest; verification then detects truncation and deletion. Anchors are keyed by data
 directory, so several tenants or deployments can share one anchor root without overwriting each
@@ -239,8 +239,8 @@ reach. `audit --verify` rejects an empty log (the same applies to `switch memory
 Inspect or verify with:
 
 ```sh
-kube-investigator audit --limit 20
-kube-investigator audit --verify
+ai-sre audit --limit 20
+ai-sre audit --verify
 ```
 
 Prune old local data and rotated audit archives. The command never removes the current audit file,
@@ -248,18 +248,18 @@ keeps investigations that have not reached a terminal state, and refuses to prun
 hash chain is already broken (deleting it would erase the evidence):
 
 ```sh
-kube-investigator maintenance prune --investigation-days 90 --audit-days 30 --dry-run
-kube-investigator maintenance prune --investigation-days 90 --audit-days 30 --vacuum
+ai-sre maintenance prune --investigation-days 90 --audit-days 30 --dry-run
+ai-sre maintenance prune --investigation-days 90 --audit-days 30 --vacuum
 ```
 
-**Live telemetry (logs and metrics).** With `INVESTIGATOR_BACKEND=kubernetes` and
-`INVESTIGATOR_KUBE_CONTEXT` set, the telemetry analyst gets two read-only tools in
+**Live telemetry (logs and metrics).** With `AI_SRE_BACKEND=kubernetes` and
+`AI_SRE_KUBE_CONTEXT` set, the telemetry analyst gets two read-only tools in
 addition to `source_status`:
 
-- `kube_investigator_logs(namespace, pod?, selector?, tail_lines<=200, since_seconds<=3600)` —
+- `ai_sre_logs(namespace, pod?, selector?, tail_lines<=200, since_seconds<=3600)` —
   bounded pod logs from the Kubernetes API; obvious credential values are redacted and
   every call is actor-audited;
-- `kube_investigator_metrics(namespace?, scope=pods|nodes)` — live CPU/memory from
+- `ai_sre_metrics(namespace?, scope=pods|nodes)` — live CPU/memory from
   metrics-server.
 
 Install metrics-server in kind (or use your own Prometheus-compatible source):
@@ -275,18 +275,18 @@ kubectl --context kind-imesh top pods -n imesh-demo
 Pass the live settings through Console setup so the agent MCP children inherit them:
 
 ```sh
-export INVESTIGATOR_BACKEND=kubernetes INVESTIGATOR_KUBE_CONTEXT=kind-imesh
-export INVESTIGATOR_CLUSTER=kind-imesh INVESTIGATOR_NAMESPACES=imesh-demo
-kube-investigator switch console setup --directory . --refresh
+export AI_SRE_BACKEND=kubernetes AI_SRE_KUBE_CONTEXT=kind-imesh
+export AI_SRE_CLUSTER=kind-imesh AI_SRE_NAMESPACES=imesh-demo
+ai-sre switch console setup --directory . --refresh
 ```
 
 `source_status("telemetry")` then reports `configured: true` with
 `sources: ["pod-logs","metrics-server"]`. Only `telemetry-analyst` holds the
 `logs` and `metrics` claims; other roles are denied by the token check.
 
-Set `INVESTIGATOR_MCP_ACTOR` to label the caller in development mode. For a signed credential
-check, set `INVESTIGATOR_MCP_PUBLIC_KEY` and pass a signed Ed25519 token in
-`INVESTIGATOR_MCP_ACTOR_TOKEN`; **every tool call except `health`** (run/get/verify/memory/
+Set `AI_SRE_MCP_ACTOR` to label the caller in development mode. For a signed credential
+check, set `AI_SRE_MCP_PUBLIC_KEY` and pass a signed Ed25519 token in
+`AI_SRE_MCP_ACTOR_TOKEN`; **every tool call except `health`** (run/get/verify/memory/
 source-status) then rejects missing, expired, wrong-tenant, and wrong-actor tokens. A configured actor
 token without a public key is rejected instead of silently falling back to development mode:
 
@@ -301,13 +301,13 @@ Console-generated tokens carry a signed `tools` claim (for example, the memory r
 only `memory`; the evidence verifier gets `get` and `verify`), and the MCP server rejects an
 authenticated actor that calls a tool outside that claim. A legacy token without the claim falls
 back to the built-in role map for known actors and the optional server-side
-`INVESTIGATOR_MCP_TOOLS` allowlist (comma-separated short or full tool names); an unknown/custom
+`AI_SRE_MCP_TOOLS` allowlist (comma-separated short or full tool names); an unknown/custom
 actor keeps full-tool behavior unless the allowlist is set. When that allowlist is configured it
 also caps a token's `tools` claim, so the effective grant is the intersection. `health` stays open as
 a liveness probe but exposes only `ok`, version, and read-only status unless authentication is
 configured and passes (in unauthenticated development mode it also reports the configured scope).
 
-**Kubernetes and SRE knowledge for every agent.** The `kube_investigator_docs`
+**Kubernetes and SRE knowledge for every agent.** The `ai_sre_docs`
 tool searches the upstream English Kubernetes documentation (the
 `content/en/docs` tree from `kubernetes/website`, CC BY 4.0) plus a
 **per-agent SRE playbook** under `knowledge/<agent>/playbook.md` (incident
@@ -325,9 +325,9 @@ git -C .data/k8s-docs/src sparse-checkout set content/en/docs
 python scripts/index_kubernetes_docs.py    # 1,728 documents -> ~21.4k passages
 ```
 
-`kube_investigator_docs(query, limit=5)` returns cited passages with
+`ai_sre_docs(query, limit=5)` returns cited passages with
 `https://kubernetes.io/docs/...` URLs; an unbuilt index is reported, never
-faked. Set `INVESTIGATOR_DOCS_INDEX` to point at a different index. The
+faked. Set `AI_SRE_DOCS_INDEX` to point at a different index. The
 cluster-investigator instructions tell it to search by failure signature (for
 example “service has no endpoints”) and cite the URL in the evidence summary;
 the Mattermost responder appends a `Knowledge:` or `K8s reference:` citation to
@@ -342,8 +342,8 @@ Console agents. It is a passive report, so rotate on a schedule (for example wee
 seven days before expiry):
 
 ```sh
-kube-investigator switch console status --json
-kube-investigator switch console setup --directory . --actor-tokens --rotate-key
+ai-sre switch console status --json
+ai-sre switch console setup --directory . --actor-tokens --rotate-key
 # Restart each agent runtime (a Console kickoff does this) so it loads the new token/public key.
 ```
 
@@ -368,8 +368,8 @@ outside it, and the parent agents still share the operator uid.
 Approved records can be published directly to the Console `k8s-memory` room:
 
 ```sh
-kube-investigator switch memory approve ... --console
-kube-investigator switch memory publish --id <record-id> --console
+ai-sre switch memory approve ... --console
+ai-sre switch memory publish --id <record-id> --console
 ```
 
 The live record `e984ecff-…` is attached to the Console memory room as document
@@ -380,9 +380,9 @@ and search by meaning, with keyword matches still contributing to the score:
 
 ```sh
 python -m pip install -e '.[semantic]'
-export INVESTIGATOR_MEMORY_SEMANTIC_MODEL='minishlab/potion-base-8M'
-kube-investigator switch memory index
-kube-investigator switch memory search --query 'routing failure'
+export AI_SRE_MEMORY_SEMANTIC_MODEL='minishlab/potion-base-8M'
+ai-sre switch memory index
+ai-sre switch memory search --query 'routing failure'
 ```
 
 The live index returned the checkout selector record for `routing failure`, while unrelated
@@ -397,13 +397,13 @@ prompts, evidence, or room content to Trust. The client uses the base URL from t
 Switch Trust OpenAPI document: `https://{host}/api/v1`.
 
 ```sh
-export INVESTIGATOR_TRUST_API_KEY='sk_...'
-export INVESTIGATOR_TRUST_INSTANCE='https://app.switchagents.ai'
+export AI_SRE_TRUST_API_KEY='sk_...'
+export AI_SRE_TRUST_INSTANCE='https://app.switchagents.ai'
 
-kube-investigator switch trust status
-kube-investigator switch trust publish            # writes a snapshot to k8s-governance
-kube-investigator switch trust publish --console  # writes it to Console's k8s-governance room
-kube-investigator switch roi --agent-id <trust-agent-id>
+ai-sre switch trust status
+ai-sre switch trust publish            # writes a snapshot to k8s-governance
+ai-sre switch trust publish --console  # writes it to Console's k8s-governance room
+ai-sre switch roi --agent-id <trust-agent-id>
 ```
 
 `switch trust publish` requires a configured Trust key and, by default, a live self-hosted Switch
@@ -426,13 +426,13 @@ The pinned CodeScan action's scanner image was downloaded through the Trust API 
 clean checkout. It completed its static inventory upload: 2 libraries, 2 organizations, 0 agents,
 5 MCP servers, and 0 secrets at the time. A follow-up `switch trust status` read those MCP servers
 from the live workspace. The same pinned action then ran on a private GitHub-hosted runner:
-[run 41855283512](https://github.com/saikatroy973/kube-investigator/actions/runs/41855283512).
+[run 41855283512](https://github.com/saikatroy973/ai-sre/actions/runs/41855283512).
 The job completed successfully in 5m50s and uploaded the same static inventory. The action warned
 that the MCP AI scanner did not complete because the model provider was unavailable or rate
 limiting; the uploaded inventory may be incomplete for AI-only findings. The repository's test
 workflow also passed. That static inventory is separate from runtime ROI.
 
-The deterministic evaluation harness (`kube_investigator.eval_harness`) was published through a
+The deterministic evaluation harness (`ai_sre.eval_harness`) was published through a
 temporary Cloudflare tunnel and registered in Trust as a `generic_http` agent endpoint for Trust
 agent `agn_0b9ae0a09ef8cf6df36a96d572ae0c9a`. Three agent evaluations were assigned: LLM01 prompt
 injection, LLM02 PII leakage, and LLM02 secret leakage. The PII and secret runs finished with 100
@@ -475,7 +475,7 @@ The local Switch Trust CLI can scan the agent code without the Trust API client:
 
 ```sh
 python -m pip install switch-trust-cli
-kube-investigator switch trust scan --path src/kube_investigator/trust_harness.py
+ai-sre switch trust scan --path src/ai_sre/trust_harness.py
 ```
 
 `switch trust scan` runs `switch-trust scan` as a subprocess and passes through its exit code.
@@ -489,12 +489,12 @@ AI reasoning attempts against Gemini returned `503 UNAVAILABLE` (high demand) or
 (free-tier quota), so this is a static scan of that scannable file, not a completed AI scan or a
 tenant CodeScan of every Python module.
 
-Trust evaluations use the deterministic harness at `src/kube_investigator/eval_harness.py`. It does
+Trust evaluations use the deterministic harness at `src/ai_sre/eval_harness.py`. It does
 not call an LLM; it refuses mutation/secret requests and answers the fixture investigation with
 cited evidence. Expose it over a URL that Trust can reach:
 
 ```sh
-uvicorn kube_investigator.eval_harness:app --host 127.0.0.1 --port 8099
+uvicorn ai_sre.eval_harness:app --host 127.0.0.1 --port 8099
 # For local testing, expose port 8099 with a tunnel and register that URL as a
 # generic_http agent endpoint (input_path=input, output_path=output).
 ```
@@ -503,13 +503,13 @@ The live registration used a temporary Cloudflare tunnel, Trust agent
 `agn_0b9ae0a09ef8cf6df36a96d572ae0c9a`, and a `generic_http` endpoint. Temporary tunnels are not a
 production hosting path.
 
-`src/kube_investigator/trust_harness.py` is a separate OpenAI Agents SDK harness used as the
+`src/ai_sre/trust_harness.py` is a separate OpenAI Agents SDK harness used as the
 CodeScan target. It also exposes `POST /run` with input/output guardrails and the read-only
 investigation tool:
 
 ```sh
 python -m pip install -e '.[trust-eval]'
-uvicorn kube_investigator.trust_harness:app --host 127.0.0.1 --port 8099
+uvicorn ai_sre.trust_harness:app --host 127.0.0.1 --port 8099
 ```
 
 ### Switch Trust admin prerequisites
@@ -551,7 +551,7 @@ The pinned action also needs a directly billable provider key. For OpenCode Go,
 `.github/workflows/switch-trust-opencode.yml` runs the same scanner image through a local
 OpenAI-compatible proxy (`scripts/opencode_proxy.py`) that adds the OpenCode session header and
 uses `deepseek-v4.1-flash`. GitHub Actions
-[run 41893473483](https://github.com/saikatroy973/kube-investigator/actions/runs/41893473483)
+[run 41893473483](https://github.com/saikatroy973/ai-sre/actions/runs/41893473483)
 completed the AI scan in 4m16s: 2 libraries, 2 organizations, 6 MCP servers, 0 secrets, and no
 secret findings; the findings gate passed. The workflow is manual because it downloads a large
 scanner image and uses a paid provider. The PR-triggered pinned-action workflow still needs a
@@ -560,11 +560,11 @@ directly billable provider key; until then it fails closed at the provider prefl
 
 ### Switch environment
 
-`switch console` reads Console admin credentials from `INVESTIGATOR_CONSOLE_SERVER_URL`,
-`INVESTIGATOR_CONSOLE_EMAIL`, and `INVESTIGATOR_CONSOLE_PASSWORD`, or from the local Console
-server env file named by `INVESTIGATOR_CONSOLE_ENV_FILE`. The password is never printed.
+`switch console` reads Console admin credentials from `AI_SRE_CONSOLE_SERVER_URL`,
+`AI_SRE_CONSOLE_EMAIL`, and `AI_SRE_CONSOLE_PASSWORD`, or from the local Console
+server env file named by `AI_SRE_CONSOLE_ENV_FILE`. The password is never printed.
 
-`Settings.from_env()` defaults to `INVESTIGATOR_SWITCH_MODE=required` for the protocol/API path,
+`Settings.from_env()` defaults to `AI_SRE_SWITCH_MODE=required` for the protocol/API path,
 so `investigate` and the HTTP API fail closed unless Switch is reachable and the six protocol
 agents are registered. The direct `Settings()` constructor defaults to `off`, which keeps offline
 tests and `demo` isolated. `switch-demo` always uses fixture Kubernetes data but requires a real
@@ -578,12 +578,12 @@ The CLI can persist requests in SQLite and run them with local workers. This is 
 queue across process restarts, not a distributed workflow engine:
 
 ```sh
-kube-investigator queue add \
+ai-sre queue add \
   --question 'Why is checkout failing?' \
   --cluster demo-cluster --namespace shop --service checkout --deployment checkout
-kube-investigator queue list
-kube-investigator queue run          # process pending jobs; --once for one
-kube-investigator queue retry --id <queue-id>
+ai-sre queue list
+ai-sre queue run          # process pending jobs; --once for one
+ai-sre queue retry --id <queue-id>
 ```
 
 A failed job is visible as `failed` with its sanitized error; the worker does not silently retry
@@ -604,7 +604,7 @@ The coordinator emits `investigation.collect`, `investigation.reason`, and
 ```sh
 python -m pip install -e '.[otel]'
 export OTEL_EXPORTER_OTLP_ENDPOINT='http://127.0.0.1:4318'
-export OTEL_SERVICE_NAME='kube-investigator'
+export OTEL_SERVICE_NAME='ai-sre'
 ```
 
 The MCP server also configures the same exporter when it starts. A missing SDK or endpoint is a
@@ -617,8 +617,8 @@ agent and an **Ingest only** or Editor key. Pass the full trace signal URL to th
 ```sh
 OTEL_EXPORTER_OTLP_ENDPOINT='https://ingestion.switchagents.ai/agent/otel/v1/traces'
 OTEL_EXPORTER_OTLP_HEADERS='Authorization=ApiKey sk-...'
-OTEL_SERVICE_NAME='kube-investigator'
-OTEL_RESOURCE_ATTRIBUTES='gen_ai.agent.name=kube-investigator-otel'
+OTEL_SERVICE_NAME='ai-sre'
+OTEL_RESOURCE_ATTRIBUTES='gen_ai.agent.name=ai-sre-otel'
 ```
 
 The Python exporter uses an explicit `endpoint` as-is; it does not append `/v1/traces`. Passing
@@ -632,15 +632,15 @@ Switch Trust SDK gateway with a policy ID and an agent identity.
 Generate an API token and bind the server to localhost:
 
 ```sh
-export INVESTIGATOR_API_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
-uvicorn kube_investigator.api:create_app --factory --host 127.0.0.1 --port 8000
+export AI_SRE_API_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+uvicorn ai_sre.api:create_app --factory --host 127.0.0.1 --port 8000
 ```
 
 In a terminal with the same token:
 
 ```sh
 curl http://127.0.0.1:8000/v1/investigations \
-  -H "Authorization: Bearer $INVESTIGATOR_API_TOKEN" \
+  -H "Authorization: Bearer $AI_SRE_API_TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"question":"Why is checkout failing?","cluster":"demo-cluster","namespace":"shop","service":"checkout","deployment":"checkout"}'
 ```
@@ -655,7 +655,7 @@ Endpoints:
 
 Every `/v1` endpoint requires bearer authentication. The configured server-side principal, not request text, determines tenant/cluster/namespace access. This milestone has one API principal; it is **not** an enterprise identity provider. Investigation responses are private to that principal. The API refuses to start without a token. Interactive API docs are disabled.
 
-`Settings.from_env()` requires Switch, so API workers start only after `switch bootstrap`. This is deliberate fail-closed behavior, not a degraded local mode. Use `INVESTIGATOR_SWITCH_MODE=off` only for isolated development and tests, where investigation records have no Switch room.
+`Settings.from_env()` requires Switch, so API workers start only after `switch bootstrap`. This is deliberate fail-closed behavior, not a degraded local mode. Use `AI_SRE_SWITCH_MODE=off` only for isolated development and tests, where investigation records have no Switch room.
 
 The API executes synchronously with bounded admission. It is not a durable task queue; a client disconnect does not cancel work. Do not expose it publicly or run multiple API workers against this milestone's local admission controls.
 
@@ -674,12 +674,12 @@ Source reads are not an atomic cluster snapshot. Reports describe the observatio
 The default investigator uses a deterministic baseline, **not an LLM**. To use a Scale model to propose the diagnosis:
 
 ```sh
-export INVESTIGATOR_REASONER=scale
+export AI_SRE_REASONER=scale
 export SGP_API_BASE_URL='https://YOUR-SCALE-API-HOST'
 export SGP_API_KEY='YOUR-KEY'
 export SGP_ACCOUNT_ID='YOUR-ACCOUNT'
 export SGP_MODEL='YOUR-ENABLED-VENDOR/MODEL'
-kube-investigator investigate --cluster demo-cluster --namespace shop \
+ai-sre investigate --cluster demo-cluster --namespace shop \
   --service checkout --deployment checkout --question 'Why is checkout failing?'
 ```
 
@@ -693,11 +693,11 @@ This is **SGP inference integration, not Agentex hosting or AgentOps export**. T
 
 ```sh
 python -m pip install -e '.[kubernetes]'
-export INVESTIGATOR_BACKEND=kubernetes
-export INVESTIGATOR_CLUSTER=my-cluster
-export INVESTIGATOR_NAMESPACES=shop
-export INVESTIGATOR_KUBE_CONTEXT=explicit-read-only-context
-kube-investigator investigate --cluster my-cluster --namespace shop \
+export AI_SRE_BACKEND=kubernetes
+export AI_SRE_CLUSTER=my-cluster
+export AI_SRE_NAMESPACES=shop
+export AI_SRE_KUBE_CONTEXT=explicit-read-only-context
+ai-sre investigate --cluster my-cluster --namespace shop \
   --service checkout --deployment checkout --question 'Why is checkout failing?'
 ```
 
@@ -719,7 +719,7 @@ Implemented and tested offline:
 - Switch Console management API client and `switch console status|setup|incident` commands.
 - Six Console-managed agent definitions with role-specific instructions, created on an online
   Console machine and registered into Switch rooms.
-- A read-only MCP server (`python -m kube_investigator.mcp_server`) with evidence collection,
+- A read-only MCP server (`python -m ai_sre.mcp_server`) with evidence collection,
   persisted-investigation readback, independent verification, scoped memory lookup, and explicit
   source-abstention tools.
 - The `k8s-incident-kit` Switch package, automatically attached to new Console incident rooms,
@@ -746,10 +746,10 @@ Verified live through Switch Console:
   Console-managed commander session.
 - The room transcript shows the commander dispatching `cluster-investigator`,
   `telemetry-analyst`, `change-analyst`, and `memory-researcher` with Switch
-  `send_targeted_message`; each specialist used the `kube-investigator` MCP server.
+  `send_targeted_message`; each specialist used the `ai-sre` MCP server.
 - The cluster investigator created `evidence-summary`; the telemetry and change analysts
   explicitly abstained; the memory researcher found no approved records at that time; the evidence
-  verifier re-ran `kube_investigator_verify` against the five persisted evidence IDs and created
+  verifier re-ran `ai_sre_verify` against the five persisted evidence IDs and created
   `verification`; the incident commander created `final-report`.
 - The selector-mismatch run ended `supported` with evidence IDs and digests cited, and the report
   states its fixture and read-only limitations.
@@ -814,7 +814,7 @@ ruff format --check .
 
 Tests use fixtures, an in-memory Switch runtime, and mock HTTP transports; they do not access a
 cluster, Scale, or a live Switch server. The GitHub Actions `Tests` workflow
-[run 41967118414](https://github.com/saikatroy973/kube-investigator/actions/runs/41967118414)
+[run 41967118414](https://github.com/saikatroy973/ai-sre/actions/runs/41967118414)
 passed on Python 3.11, 3.13, and 3.14 for commit `bfe1c1d`; the local suite is 259 tests. See
 `docs/BUILD_PLAN.md` for the implementation sequence and `docs/SWITCH_NATIVE_PLAN.md` for the gap
 audit (2–11) and remaining production gates.
@@ -835,17 +835,17 @@ audit (2–11) and remaining production gates.
 
 Hardening you should wire before showing the agent to anyone else:
 
-- **Per-agent actor tokens.** `kube-investigator switch console setup --directory .` now enables
+- **Per-agent actor tokens.** `ai-sre switch console setup --directory .` now enables
   per-agent tokens and isolated Console agents by default; `--no-actor-tokens` and
   `--isolation shared` are explicit downgrades. Each agent gets its own directory and an
-  Ed25519-signed `INVESTIGATOR_MCP_ACTOR_TOKEN` (14-day TTL) with a role-specific `tools` claim;
+  Ed25519-signed `AI_SRE_MCP_ACTOR_TOKEN` (14-day TTL) with a role-specific `tools` claim;
   every evidence tool except `health` authenticates and enforces that claim, failing closed on
   missing, foreign, expired, or unauthorized calls (`scripts/mcp_token_probe.py` proves
   `ok`/`missing`/`foreign` over a real stdio spawn). Every authenticated call is actor-attributed
   in a hash-chained audit: memory searches in `memory-audit*.jsonl`, and
   `run`/`get`/`verify`/`source_status` in `tool-audit*.jsonl`. Audit rows go to the writable data
-  directory, never the read-only evidence store; `kube-investigator audit --verify` checks the tool
-  chain, and `INVESTIGATOR_AUDIT_ANCHOR_DIR` adds an external truncation/deletion anchor. These are
+  directory, never the read-only evidence store; `ai-sre audit --verify` checks the tool
+  chain, and `AI_SRE_AUDIT_ANCHOR_DIR` adds an external truncation/deletion anchor. These are
   per-agent credentials, **not a same-uid security boundary**: all six agents run as the operator
   account and can read each other's configs, the shared signing key, and token-bearing MCP child
   environments (`ps -ax -Eww`); that account can also open the evidence DB directly and rewrite
@@ -857,7 +857,7 @@ Hardening you should wire before showing the agent to anyone else:
   `--allow-shared-directory` is passed on purpose.
 - **Read-only evidence store.** The MCP `get`/`verify` tools open the SQLite evidence store in
   URI read-only mode: they cannot create, migrate, or write it, and a missing store is a clean
-  refusal. `INVESTIGATOR_EVIDENCE_STORE_DIR` points them at a staged snapshot in isolation.
+  refusal. `AI_SRE_EVIDENCE_STORE_DIR` points them at a staged snapshot in isolation.
 - **OS isolation.** `bash deploy/mcp-container/verify.sh` builds a non-root, read-only,
   capability-less, network-less MCP container, stages a real completed investigation as a
   0444 read-only snapshot, and gates five probes (`uid-isolation`, `filesystem-isolation`,

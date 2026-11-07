@@ -75,7 +75,7 @@ def probe_no_network() -> None:
 
 def _spawn_server(env: dict[str, str]):
     process = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
-        ["python", "-m", "kube_investigator.mcp_server"],
+        ["python", "-m", "ai_sre.mcp_server"],
         env=env,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
@@ -145,20 +145,20 @@ def probe_mcp_stdio_handshake() -> None:
     """
     list_tools = {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}
     env = dict(os.environ)
-    env.setdefault("INVESTIGATOR_DATA_DIR", "/data")
+    env.setdefault("AI_SRE_DATA_DIR", "/data")
     process = _spawn_server(env)
     try:
         process.stdin.write(json.dumps(list_tools) + "\n")
         process.stdin.flush()
         listing = _read_for_id(process, 2, "tools/list")
         tools = json.dumps(listing)
-        for expected in ("kube_investigator_health", "kube_investigator_memory"):
+        for expected in ("ai_sre_health", "ai_sre_memory"):
             if expected not in tools:
                 raise RuntimeError(f"missing tool {expected}")
         payload = _call_tool(
             process,
             3,
-            "kube_investigator_memory",
+            "ai_sre_memory",
             {
                 "cluster": "demo-cluster",
                 "namespace": "shop",
@@ -180,9 +180,9 @@ def probe_evidence_store() -> None:
     investigation. The MCP child cannot create the store, write to the
     mount, or talk to a cluster; it must still answer get and verify.
     """
-    investigation_id = (os.environ.get("INVESTIGATOR_EVIDENCE_PROBE_ID") or "").strip()
-    diagnosis = (os.environ.get("INVESTIGATOR_EVIDENCE_PROBE_DIAGNOSIS") or "").strip()
-    expected_sha256 = (os.environ.get("INVESTIGATOR_EVIDENCE_PROBE_SHA256") or "").strip()
+    investigation_id = (os.environ.get("AI_SRE_EVIDENCE_PROBE_ID") or "").strip()
+    diagnosis = (os.environ.get("AI_SRE_EVIDENCE_PROBE_DIAGNOSIS") or "").strip()
+    expected_sha256 = (os.environ.get("AI_SRE_EVIDENCE_PROBE_SHA256") or "").strip()
     if not investigation_id or not diagnosis or not expected_sha256:
         raise RuntimeError("staged evidence env is missing (id, diagnosis, or digest)")
     snapshot = pathlib.Path("/evidence/investigator.sqlite3")
@@ -199,14 +199,14 @@ def probe_evidence_store() -> None:
         raise RuntimeError("the evidence mount is writable; isolation is broken")
 
     env = dict(os.environ)
-    env["INVESTIGATOR_DATA_DIR"] = "/data"
-    env["INVESTIGATOR_EVIDENCE_STORE_DIR"] = "/evidence"
+    env["AI_SRE_DATA_DIR"] = "/data"
+    env["AI_SRE_EVIDENCE_STORE_DIR"] = "/evidence"
     process = _spawn_server(env)
     try:
         record = _call_tool(
             process,
             2,
-            "kube_investigator_get",
+            "ai_sre_get",
             {"investigation_id": investigation_id},
         )
         if record.get("ok") is not True:
@@ -221,7 +221,7 @@ def probe_evidence_store() -> None:
         verification = _call_tool(
             process,
             3,
-            "kube_investigator_verify",
+            "ai_sre_verify",
             {
                 "investigation_id": investigation_id,
                 "diagnosis": diagnosis,

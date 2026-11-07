@@ -2,16 +2,16 @@ import json
 
 import pytest
 
-from kube_investigator.collectors import FixtureCollector
-from kube_investigator.config import Settings
-from kube_investigator.coordinator import Coordinator, build_coordinator
-from kube_investigator.errors import ConfigurationError, SwitchError
-from kube_investigator.models import Investigation, InvestigationState
-from kube_investigator.reasoners import DeterministicReasoner
-from kube_investigator.storage import Store
-from kube_investigator.switch import specs
-from kube_investigator.switch.memory import MemoryStore
-from kube_investigator.switch.runtime import FakeSwitchRuntime
+from ai_sre.collectors import FixtureCollector
+from ai_sre.config import Settings
+from ai_sre.coordinator import Coordinator, build_coordinator
+from ai_sre.errors import ConfigurationError, SwitchError
+from ai_sre.models import Investigation, InvestigationState
+from ai_sre.reasoners import DeterministicReasoner
+from ai_sre.storage import Store
+from ai_sre.switch import specs
+from ai_sre.switch.memory import MemoryStore
+from ai_sre.switch.runtime import FakeSwitchRuntime
 
 
 class RecordingReasoner:
@@ -230,15 +230,15 @@ def test_switch_off_keeps_the_offline_path_unchanged(settings, principal, reques
 
 
 def test_switch_demo_settings_require_a_real_switch(tmp_path, monkeypatch):
-    from kube_investigator.cli import main
+    from ai_sre.cli import main
 
-    monkeypatch.delenv("INVESTIGATOR_SWITCH_REGISTRATION_TOKEN", raising=False)
+    monkeypatch.delenv("AI_SRE_SWITCH_REGISTRATION_TOKEN", raising=False)
     monkeypatch.chdir(tmp_path)
     assert main(["switch-demo", "--data-dir", str(tmp_path / "data")]) == 1
 
 
 def test_settings_default_to_required_switch_from_environment(monkeypatch):
-    monkeypatch.delenv("INVESTIGATOR_SWITCH_MODE", raising=False)
+    monkeypatch.delenv("AI_SRE_SWITCH_MODE", raising=False)
     assert Settings.from_env().switch_mode == "required"
     assert Settings().switch_mode == "off"
 

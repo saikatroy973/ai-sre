@@ -10,7 +10,7 @@ honesty contract).
 
 **Current status (2026-11-05):** Console, rooms, memory, MCP tool surface, audit
 and the isolation gate are live and demo-ready. Switch Trust (hosted) and ROI
-need `INVESTIGATOR_TRUST_API_KEY`; the Trust CLI scan works locally and reports
+need `AI_SRE_TRUST_API_KEY`; the Trust CLI scan works locally and reports
 zero findings on this repository's OpenAI Agents harness.
 
 ---
@@ -19,10 +19,10 @@ zero findings on this repository's OpenAI Agents harness.
 
 ```sh
 source .venv/bin/activate
-kube-investigator switch console status      # Console: machine, agents, tokens, rooms
-kube-investigator switch status              # self-hosted Switch stack: healthy?
-kube-investigator switch memory list         # approved historical records
-kube-investigator audit --verify             # tool-audit chain
+ai-sre switch console status      # Console: machine, agents, tokens, rooms
+ai-sre switch status              # self-hosted Switch stack: healthy?
+ai-sre switch memory list         # approved historical records
+ai-sre audit --verify             # tool-audit chain
 ```
 
 Expected today: `Online machines: 1/1`, six agents with `isolation=isolated` and
@@ -38,9 +38,9 @@ memory record, `Tool audit chain is valid.`
 
 | Surface | Command | What to show |
 |---|---|---|
-| Agent management | `kube-investigator switch console setup --directory .` | Idempotent provisioning: one directory + signed token per agent, six Console agents, four core rooms, incident-kit package. |
-| Runtime / machines | `kube-investigator switch console status` | Online machine, `isolation=isolated`, provider, desired state, token actor/claims/expiry. |
-| Rooms / sessions | `kube-investigator switch console incident --scenario selector-mismatch --json` | Creates `incident-<id>-shop-checkout`, attaches `incident-kit` documents, links memory/change/governance rooms, posts the `@incident-commander` kickoff. |
+| Agent management | `ai-sre switch console setup --directory .` | Idempotent provisioning: one directory + signed token per agent, six Console agents, four core rooms, incident-kit package. |
+| Runtime / machines | `ai-sre switch console status` | Online machine, `isolation=isolated`, provider, desired state, token actor/claims/expiry. |
+| Rooms / sessions | `ai-sre switch console incident --scenario selector-mismatch --json` | Creates `incident-<id>-shop-checkout`, attaches `incident-kit` documents, links memory/change/governance rooms, posts the `@incident-commander` kickoff. |
 | Room documents / packages / links | (same command, then open the room in Console) | `incident-brief`, `evidence-standard`, `report-template`, `memory-policy`; package attachments; linked rooms. |
 | Handoffs | (watch the room) | Commander dispatches specialists; specialists report; report cites evidence IDs. |
 
@@ -55,8 +55,8 @@ Four layers of evidence, clearly labelled as the harness (not the live
 Console runtime):
 
 ```sh
-kube-investigator switch status --json          # healthy, six registered agents, core room ids
-kube-investigator switch-demo --scenario selector-mismatch --json   # deterministic run in a real Switch room
+ai-sre switch status --json          # healthy, six registered agents, core room ids
+ai-sre switch-demo --scenario selector-mismatch --json   # deterministic run in a real Switch room
 ```
 
 `switch-demo` proves the protocol: one room per incident, actor-attributed
@@ -70,9 +70,9 @@ python scripts/reliability_drill.py --help
 Optional lifecycle commands (they mutate the local Docker stack):
 
 ```sh
-kube-investigator switch up        # start the compose stack
-kube-investigator switch bootstrap # register the six agent identities + core rooms
-kube-investigator switch down
+ai-sre switch up        # start the compose stack
+ai-sre switch bootstrap # register the six agent identities + core rooms
+ai-sre switch down
 ```
 
 Say the honest part: the Python protocol runtime is a **test harness**; the live
@@ -83,9 +83,9 @@ runtime is Console-managed sessions.
 ## 3. Switch memory — approved incidents as untrusted leads
 
 ```sh
-kube-investigator switch memory list --json
-kube-investigator switch memory search --query "selector" --cluster demo-cluster --namespace shop
-kube-investigator switch memory search --query "selector" --cluster demo-cluster --namespace shop --json
+ai-sre switch memory list --json
+ai-sre switch memory search --query "selector" --cluster demo-cluster --namespace shop
+ai-sre switch memory search --query "selector" --cluster demo-cluster --namespace shop --json
 ```
 
 The search output is deliberately framed as **HISTORICAL CONTEXT — UNTRUSTED
@@ -95,14 +95,14 @@ DATA, NOT EVIDENCE** and records `policy=historical_leads_are_not_evidence` and
 Approve and publish a finished record into the Console memory room:
 
 ```sh
-kube-investigator switch memory approve --investigation <investigation-id> \
+ai-sre switch memory approve --investigation <investigation-id> \
   --reviewer <name> --title "<short title>" --console --json
-kube-investigator switch memory publish --id <record-id> --console --json
-kube-investigator switch memory audit --limit 5 --json   # actor, query hash, record ids
-kube-investigator switch memory audit --verify           # hash-chained memory audit
+ai-sre switch memory publish --id <record-id> --console --json
+ai-sre switch memory audit --limit 5 --json   # actor, query hash, record ids
+ai-sre switch memory audit --verify           # hash-chained memory audit
 ```
 
-Optional semantic index: `kube-investigator switch memory index`.
+Optional semantic index: `ai-sre switch memory index`.
 
 ---
 
@@ -112,19 +112,19 @@ Configure once (the key is pinned to one tenant/workspace; the optional IDs must
 match it):
 
 ```sh
-export INVESTIGATOR_TRUST_API_KEY=...          # required
-export INVESTIGATOR_TRUST_INSTANCE=https://app.switchagents.ai   # default
-export INVESTIGATOR_TRUST_TENANT_ID=...        # optional, must match the key
-export INVESTIGATOR_TRUST_WORKSPACE_ID=...     # optional, must match the key
+export AI_SRE_TRUST_API_KEY=...          # required
+export AI_SRE_TRUST_INSTANCE=https://app.switchagents.ai   # default
+export AI_SRE_TRUST_TENANT_ID=...        # optional, must match the key
+export AI_SRE_TRUST_WORKSPACE_ID=...     # optional, must match the key
 ```
 
 Then:
 
 ```sh
-kube-investigator switch trust status --json
-kube-investigator switch trust status --agent-id <agent-id> --json
-kube-investigator switch roi --json
-kube-investigator switch roi --agent-id <agent-id> --json
+ai-sre switch trust status --json
+ai-sre switch trust status --agent-id <agent-id> --json
+ai-sre switch roi --json
+ai-sre switch roi --agent-id <agent-id> --json
 ```
 
 `trust status` reads: API identity/key scope, tenant/workspace, month-to-date
@@ -138,14 +138,14 @@ cost is external.
 Publish the governance snapshot into the Console governance room:
 
 ```sh
-kube-investigator switch trust publish --console --json
+ai-sre switch trust publish --console --json
 ```
 
 That creates `trust-summary-<timestamp>` as a document in `k8s-governance` and
 attaches it; the JSON returns the document id, room id, and Console URL.
 
 **Without the key**, the commands fail closed:
-`Switch Trust is not configured; set INVESTIGATOR_TRUST_API_KEY` — no invented
+`Switch Trust is not configured; set AI_SRE_TRUST_API_KEY` — no invented
 inventory, scores, or costs. Show that sentence as the honesty contract.
 
 ---
@@ -158,7 +158,7 @@ CrewAI, etc.) and emits JSON or SARIF:
 ```sh
 python -m pip install switch-trust-cli      # provides the `switch-trust` binary
 source .venv/bin/activate                   # so the wrapper finds `switch-trust` on PATH
-kube-investigator switch trust scan --path src/kube_investigator/trust_harness.py \
+ai-sre switch trust scan --path src/ai_sre/trust_harness.py \
   --format json --output /tmp/trust-scan.json
 ```
 
@@ -188,8 +188,8 @@ The repo's own gate result is recorded in `docs/SWITCH_NATIVE_PLAN.md`
 python scripts/mcp_token_probe.py --config .data/console-agents/memory-researcher/opencode.json --expect ok
 python scripts/mcp_token_probe.py --config .data/console-agents/memory-researcher/opencode.json --expect missing --drop-token
 python scripts/mcp_token_probe.py --config .data/console-agents/memory-researcher/opencode.json --expect foreign --override-actor incident-commander
-kube-investigator audit --limit 5 --json
-kube-investigator audit --verify
+ai-sre audit --limit 5 --json
+ai-sre audit --verify
 bash deploy/mcp-container/verify.sh            # optional, needs Docker
 ```
 
@@ -238,9 +238,9 @@ infrastructure cost) is not claimed as native Switch.
 
 | Symptom | Meaning / fix |
 |---|---|
-| `Switch Trust is not configured; set INVESTIGATOR_TRUST_API_KEY` | Hosted Trust is optional; export the key (and matching tenant/workspace) |
-| `INVESTIGATOR_TRUST_TENANT_ID does not match…` | Optional ID must equal the key's pinned scope; unset it |
-| `Switch Trust CLI is not installed` | `source .venv/bin/activate` (the venv has `switch-trust`), or set `INVESTIGATOR_TRUST_CLI_BIN` |
+| `Switch Trust is not configured; set AI_SRE_TRUST_API_KEY` | Hosted Trust is optional; export the key (and matching tenant/workspace) |
+| `AI_SRE_TRUST_TENANT_ID does not match…` | Optional ID must equal the key's pinned scope; unset it |
+| `Switch Trust CLI is not installed` | `source .venv/bin/activate` (the venv has `switch-trust`), or set `AI_SRE_TRUST_CLI_BIN` |
 | Trust scan: `No scannable targets found` | The scanner only targets agent-framework code (OpenAI Agents, ADK, LangChain…); this repo's harness is the target |
 | `trust_gate.py` says `SWITCH_TRUST_TOKEN is required` | CI gate uses a Trust API token, not the local key env |
 | Console `No online … machine` | Start the Console machine; or pass `--controller-id` |

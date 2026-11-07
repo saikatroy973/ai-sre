@@ -30,12 +30,12 @@ from typing import Any
 
 import httpx
 
-from kube_investigator.knowledge import search_docs
-from kube_investigator.storage import Store
-from kube_investigator.switch.client import SwitchClient
-from kube_investigator.switch.identity import CredentialStore
-from kube_investigator.switch.memory import MemoryStore
-from kube_investigator.switch.specs import (
+from ai_sre.knowledge import search_docs
+from ai_sre.storage import Store
+from ai_sre.switch.client import SwitchClient
+from ai_sre.switch.identity import CredentialStore
+from ai_sre.switch.memory import MemoryStore
+from ai_sre.switch.specs import (
     AGENTS_BY_NAME,
     CONSOLE_ROLE_INSTRUCTIONS,
     CORE_ROOM_AGENTS,

@@ -4,8 +4,8 @@ from uuid import uuid4
 
 import pytest
 
-from kube_investigator.models import Candidate, EvidenceKind, utc_now
-from kube_investigator.verification import EvidenceVerifier
+from ai_sre.models import Candidate, EvidenceKind, utc_now
+from ai_sre.verification import EvidenceVerifier
 
 
 def candidate_for(evidence):

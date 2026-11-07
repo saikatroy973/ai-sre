@@ -4,8 +4,8 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
-from kube_investigator.api import create_app
-from kube_investigator.errors import ConfigurationError
+from ai_sre.api import create_app
+from ai_sre.errors import ConfigurationError
 
 
 @pytest.fixture
@@ -111,7 +111,7 @@ def test_api_capacity_is_explicit(client, headers, request_data):
 
 
 def test_api_hides_another_operators_record(client, headers, request_data, settings):
-    from kube_investigator.auth import Principal
+    from ai_sre.auth import Principal
 
     service = client.app.state.coordinator
     record = service.run(request_data, Principal.operator(settings, subject="different-owner"))

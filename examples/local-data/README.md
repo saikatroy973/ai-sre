@@ -15,9 +15,9 @@ Regenerate the real directory locally:
 
 ```sh
 pip install -e '.[dev,kubernetes]'
-kube-investigator switch up --collab          # writes .data/switch/.env
-kube-investigator switch bootstrap            # writes .data/switch/agents.json
-kube-investigator switch console setup --directory .   # writes .data/console-agents/*
+ai-sre switch up --collab          # writes .data/switch/.env
+ai-sre switch bootstrap            # writes .data/switch/agents.json
+ai-sre switch console setup --directory .   # writes .data/console-agents/*
 ```
 
 The templates below show the shape only. Replace `<REPO>`, `<ACTOR_TOKEN>` and

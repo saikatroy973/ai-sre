@@ -1,27 +1,33 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
-    "kube-investigator": {
-      "command": ["<REPO>/.venv/bin/python", "-m", "kube_investigator.mcp_server"],
+    "ai-sre": {
+      "command": [
+        "<REPO>/.venv/bin/python",
+        "-m",
+        "ai_sre.mcp_server"
+      ],
       "enabled": true,
       "environment": {
-        "INVESTIGATOR_DATA_DIR": "<REPO>/.data",
-        "INVESTIGATOR_MCP_ACTOR": "<agent-name>",
-        "INVESTIGATOR_MCP_ACTOR_TOKEN": "<ACTOR_TOKEN>",
-        "INVESTIGATOR_MCP_PUBLIC_KEY": "<PUBLIC_KEY>",
-        "INVESTIGATOR_TENANT": "local"
+        "AI_SRE_DATA_DIR": "<REPO>/.data",
+        "AI_SRE_MCP_ACTOR": "<agent-name>",
+        "AI_SRE_MCP_ACTOR_TOKEN": "<ACTOR_TOKEN>",
+        "AI_SRE_MCP_PUBLIC_KEY": "<PUBLIC_KEY>",
+        "AI_SRE_TENANT": "local"
       },
       "type": "local"
     }
   },
   "permission": {
-    "kube-investigator_": "allow",
-    "kube-investigator_kube_investigator_health": "allow",
-    "kube-investigator_kube_investigator_run": "allow",
-    "kube-investigator_kube_investigator_get": "allow",
-    "kube-investigator_kube_investigator_verify": "allow",
-    "kube-investigator_kube_investigator_memory": "allow",
-    "kube-investigator_kube_investigator_source_status": "allow",
-    "kube-investigator_kube_investigator_docs": "allow"
+    "ai-sre_": "allow",
+    "ai-sre_ai_sre_health": "allow",
+    "ai-sre_ai_sre_run": "allow",
+    "ai-sre_ai_sre_get": "allow",
+    "ai-sre_ai_sre_verify": "allow",
+    "ai-sre_ai_sre_memory": "allow",
+    "ai-sre_ai_sre_source_status": "allow",
+    "ai-sre_ai_sre_docs": "allow",
+    "ai-sre_ai_sre_logs": "allow",
+    "ai-sre_ai_sre_metrics": "allow"
   }
 }

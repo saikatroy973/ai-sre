@@ -22,18 +22,18 @@ Verified live on 2026-11-05 (see [Verified state](#verified-state-2026-11-05)).
 
 | Requirement | Check |
 |---|---|
-| Switch Console running with a local server and an **online machine** | `kube-investigator switch console status` → `Online machines: 1/1` |
+| Switch Console running with a local server and an **online machine** | `ai-sre switch console status` → `Online machines: 1/1` |
 | OpenCode provider installed and signed in on that machine | the six agents start (see step 3) |
-| Repo venv installed (`pip install -e '.[dev,kubernetes]'`) | `kube-investigator --help` |
-| Console admin session | auto-discovered from `~/Library/Application Support/switchdash/local-switch-server/native/run/switch-core.env`, or set `INVESTIGATOR_CONSOLE_SERVER_URL` / `INVESTIGATOR_CONSOLE_EMAIL` / `INVESTIGATOR_CONSOLE_PASSWORD` |
+| Repo venv installed (`pip install -e '.[dev,kubernetes]'`) | `ai-sre --help` |
+| Console admin session | auto-discovered from `~/Library/Application Support/switchdash/local-switch-server/native/run/switch-core.env`, or set `AI_SRE_CONSOLE_SERVER_URL` / `AI_SRE_CONSOLE_EMAIL` / `AI_SRE_CONSOLE_PASSWORD` |
 
 One-time sanity check (read-only):
 
 ```sh
 source .venv/bin/activate
-kube-investigator switch console status
-kube-investigator switch status          # self-hosted Switch stack, if used
-kube-investigator audit --verify         # tool-audit chain
+ai-sre switch console status
+ai-sre switch status          # self-hosted Switch stack, if used
+ai-sre audit --verify         # tool-audit chain
 ```
 
 `switch console status` prints, per agent: isolation mode, provider, token wiring,
@@ -45,7 +45,7 @@ actor, tool claim, and expiry. With the hardened defaults you should see
 ## 1. Adopt the hardened defaults (once, or before the demo)
 
 ```sh
-kube-investigator switch console setup --directory .
+ai-sre switch console setup --directory .
 ```
 
 What it does (all idempotent):
@@ -66,7 +66,7 @@ Expected tail: `updated_agents` lists all six, `console_isolation: isolated`.
 Then confirm the wiring:
 
 ```sh
-kube-investigator switch console status
+ai-sre switch console status
 ```
 
 Every agent should show `auth=token actor=<role> expires in 13d ... tools=<role tools>`.
@@ -86,7 +86,7 @@ The claim is what the MCP server enforces per call.
 ## 3. Run an incident (live)
 
 ```sh
-kube-investigator switch console incident --scenario selector-mismatch --json
+ai-sre switch console incident --scenario selector-mismatch --json
 ```
 
 This creates a room named `incident-<id>-<namespace>-<service>`, attaches the
@@ -109,8 +109,8 @@ Healthy and ambiguous scenarios are also available and should end in an honest
 `insufficient_evidence` rather than an invented root cause:
 
 ```sh
-kube-investigator switch console incident --scenario healthy --json
-kube-investigator switch console incident --scenario ambiguous --json
+ai-sre switch console incident --scenario healthy --json
+ai-sre switch console incident --scenario ambiguous --json
 ```
 
 ---
@@ -141,10 +141,10 @@ All of these are read-only and run in a second terminal while the room is open.
 
 ```sh
 # actor-attributed, hash-chained audit rows (tool + memory logs)
-kube-investigator audit --limit 5 --json
-kube-investigator switch memory audit --limit 5
-kube-investigator audit --verify
-kube-investigator switch memory audit --verify
+ai-sre audit --limit 5 --json
+ai-sre switch memory audit --limit 5
+ai-sre audit --verify
+ai-sre switch memory audit --verify
 ```
 
 Expected: `Tool audit chain is valid.` Each row carries the verified actor and
@@ -167,7 +167,7 @@ python scripts/mcp_token_probe.py \
 Then show the claim boundary (memory researcher cannot read evidence):
 
 ```sh
-python scripts/mcp_token_probe.py --help   # or a one-liner call to kube_investigator_get
+python scripts/mcp_token_probe.py --help   # or a one-liner call to ai_sre_get
 ```
 
 The memory researcher's token is rejected for `get`; the commander's is accepted
@@ -186,7 +186,7 @@ Expected: five `PASS` lines and `ISOLATION-OK all probes passed`.
 ## 5. Credential discipline (optional, ~1 min)
 
 ```sh
-kube-investigator switch console status --json | jq '.agent_auth'
+ai-sre switch console status --json | jq '.agent_auth'
 ```
 
 Shows `valid`, `signature_checked`, `tools`, `expires_at`, `expires_in_seconds`,
@@ -196,8 +196,8 @@ actor/tenant-`MISMATCH`, and `INSECURE` (config permissions wider than `0600`).
 Rotation (only if the demo plan includes it — this replaces the shared signing key):
 
 ```sh
-kube-investigator switch console setup --directory . --rotate-key
-kube-investigator switch console status     # new expiry, same actors
+ai-sre switch console setup --directory . --rotate-key
+ai-sre switch console status     # new expiry, same actors
 # Restart each agent runtime (a Console kickoff does this) so it loads the new key.
 ```
 
@@ -212,8 +212,8 @@ kube-investigator switch console status     # new expiry, same actors
 - Retention is explicit, never automatic:
 
 ```sh
-kube-investigator maintenance prune --investigation-days 90 --audit-days 30 --dry-run
-kube-investigator maintenance prune --investigation-days 90 --audit-days 30 --vacuum
+ai-sre maintenance prune --investigation-days 90 --audit-days 30 --dry-run
+ai-sre maintenance prune --investigation-days 90 --audit-days 30 --vacuum
 ```
 
 It keeps the current audit file, only prunes terminal investigations, verifies an
@@ -225,8 +225,8 @@ archive chain before removing it, and reports any hidden `.pruning` leftovers.
 
 | Fallback | Command | What it proves |
 |---|---|---|
-| Deterministic offline | `kube-investigator demo --json` | Evidence-backed diagnosis, no cluster/model/Switch |
-| Switch room, deterministic coordinator | `kube-investigator switch-demo --scenario selector-mismatch --json` | Room-per-incident + report document without agent runtimes |
+| Deterministic offline | `ai-sre demo --json` | Evidence-backed diagnosis, no cluster/model/Switch |
+| Switch room, deterministic coordinator | `ai-sre switch-demo --scenario selector-mismatch --json` | Room-per-incident + report document without agent runtimes |
 
 ---
 
@@ -234,7 +234,7 @@ archive chain before removing it, and reports any hidden `.pruning` leftovers.
 
 | Symptom | Cause / fix |
 |---|---|
-| `Switch Console is not configured` | Set the three `INVESTIGATOR_CONSOLE_*` vars or point `INVESTIGATOR_CONSOLE_ENV_FILE` at the Console server env file |
+| `Switch Console is not configured` | Set the three `AI_SRE_CONSOLE_*` vars or point `AI_SRE_CONSOLE_ENV_FILE` at the Console server env file |
 | `No online Switch Console machine is available` | The Console machine is offline; start it, or pass `--controller-id` |
 | Agent shows `auth=token INVALID/EXPIRED` | Re-run `switch console setup` (idempotent) and restart the runtime |
 | Agent shows `auth=token MISMATCH` | Token actor/tenant does not match the config env; re-run setup |

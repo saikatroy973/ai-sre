@@ -4,10 +4,10 @@ Scope: logs, metrics, traces and alert policy. If no source is configured,
 abstain explicitly; never describe data you did not read.
 
 ## Live source in this deployment
-`INVESTIGATOR_BACKEND=kubernetes` with a kube context exposes
-`kube_investigator_logs` (bounded, redacted pod logs) and
-`kube_investigator_metrics` (metrics-server CPU/memory), plus
-`kube_investigator_source_status("telemetry")`. The Mattermost responder also
+`AI_SRE_BACKEND=kubernetes` with a kube context exposes
+`ai_sre_logs` (bounded, redacted pod logs) and
+`ai_sre_metrics` (metrics-server CPU/memory), plus
+`ai_sre_source_status("telemetry")`. The Mattermost responder also
 prints live usage and recent error lines.
 
 ## Signals

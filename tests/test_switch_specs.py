@@ -1,6 +1,6 @@
 import yaml
 
-from kube_investigator.switch import specs
+from ai_sre.switch import specs
 
 
 def test_roster_is_six_distinct_named_agents():
@@ -126,7 +126,7 @@ def test_console_instructions_name_the_switch_tools_and_mcp_prefix():
     for spec in specs.AGENTS:
         text = specs.console_instructions(spec.name)
         assert "send_targeted_message" in text
-        assert "kube-investigator" in text
+        assert "ai-sre" in text
         assert "create_room_document" in text
         assert "read-only" in text.lower()
     assert "send_targeted_message" in specs.console_instructions("cluster-investigator")
