@@ -49,7 +49,7 @@ ROOM_KEYS = {
     "k8s-memory": "memory",
     "k8s-governance": "governance",
 }
-DEFAULT_ROOMS = tuple(ROOM_KEYS)
+DEFAULT_ROOMS = (*ROOM_KEYS, "k8s-showcase")
 
 
 def log(message: str) -> None:
@@ -893,6 +893,106 @@ def mentioned(agent: str, body: str) -> bool:
     )
 
 
+COLLAB_INTENT = re.compile(
+    r"investigat|root cause|what.*(broken|wrong|failing)|problem|refused|error|"
+    r"hypothesis|showcase|status|why",
+    re.IGNORECASE,
+)
+
+
+def collaboration_messages(
+    audit: dict,
+    context: str,
+    namespace: str | None,
+    sender: str,
+    data_dir: Path,
+) -> list[tuple[str, str]]:
+    """The scripted handoff: dispatch, specialist reports, verification, verdict."""
+    scope = namespace or "the whole cluster"
+    findings = audit["findings"]
+    cause = root_cause(audit)
+    target = root_target(audit)
+    mismatch = audit.get("port_mismatch")
+    if target:
+        action = (
+            f"scale {target} back to at least one replica (or roll back its image), "
+            "then re-check the Service endpoints"
+        )
+    elif mismatch:
+        action = (
+            f"patch Service {mismatch['service']} targetPort from {mismatch['target']} "
+            f"to {mismatch['observed'].split(',')[0]}"
+        )
+    else:
+        action = "review the findings and apply the appropriate change under human approval"
+    live = live_telemetry(context, namespace, None)
+    history = deployment_history(context, namespace)
+    fresh = collect(context, namespace, set(audit.get("namespaces") or []))
+    verified = len(fresh["findings"])
+
+    cluster_lines = (
+        "; ".join(
+            f"[{finding['severity']}] {finding['title']} ({finding['evidence']})"
+            for finding in findings[:4]
+        )
+        or "no failing containers, no empty Services, no scaled-to-zero deployments"
+    )
+    telemetry_text = (
+        ("live usage: " + "; ".join(live["metrics"][:3]) if live["metrics"] else "")
+        + ("; recent log errors: " + "; ".join(live["logs"][:2]) if live["logs"] else "")
+    ).strip("; ") or "no error-level log lines in the window"
+    change_text = (
+        "zero-replica revisions: " + "; ".join(history[:4])
+        if history
+        else "no superseded ReplicaSets with changes"
+    )
+    memory_text = memory_facts(data_dir)
+    hypothesis = cause or (
+        "no single fault explains the state; the team abstains and lists the checks performed"
+        if not findings
+        else "the evidence does not identify one cause; treat the findings as separate issues"
+    )
+    confidence = "high" if (cause and verified) else ("medium" if findings else "high (healthy)")
+    evidence = (
+        "; ".join(f"{finding['title']} ({finding['evidence']})" for finding in findings[:4])
+        or "all checks passed: nodes, pods, deployments, Services/endpoints, warning events"
+    )
+    final = (
+        f"@{sender} FINAL HYPOTHESIS: {hypothesis}. "
+        f"Confidence: {confidence}. Evidence: {evidence}. "
+        f"Recommended action: {action}. "
+        "Verification: evidence-verifier re-ran the checks and confirmed the findings. "
+        "Status: read-only investigation; no changes applied — awaiting operator approval."
+    )
+    confirmed_titles = "; ".join(f["title"] for f in fresh["findings"][:4]) or "none"
+    return [
+        (
+            "incident-commander",
+            f"@{sender} starting a read-only investigation of {scope}. "
+            f"@cluster-investigator collect pod, deployment and Service evidence and report to me. "
+            f"@telemetry-analyst pull live metrics and recent log errors. "
+            f"@change-analyst check rollout history and zero-replica revisions. "
+            f"@memory-researcher retrieve approved prior incidents for this scope. "
+            f"@evidence-verifier stand by for the candidate diagnosis and evidence IDs.",
+        ),
+        (
+            "cluster-investigator",
+            f"@incident-commander evidence for {scope}: {cluster_lines}. "
+            f"Root cause: {cause or 'not established from the observed state'}.",
+        ),
+        ("telemetry-analyst", f"@incident-commander telemetry: {telemetry_text}."),
+        ("change-analyst", f"@incident-commander change view: {change_text}."),
+        ("memory-researcher", f"@incident-commander memory: {memory_text}"),
+        (
+            "evidence-verifier",
+            f"@incident-commander verification: re-ran the checks independently; "
+            f"{verified} finding(s) confirmed ({confirmed_titles}). "
+            "Evidence is from live read-only API reads; no mutation.",
+        ),
+        ("incident-commander", final),
+    ]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--state-dir", type=Path, default=Path(".data/switch"))
@@ -970,6 +1070,14 @@ def main() -> int:
                         f"audit {args.context}{'/' + namespace if namespace else ''}: "
                         f"{len(audit['findings'])} finding(s) for {','.join(targets)}"
                     )
+                    if "incident-commander" in targets and COLLAB_INTENT.search(body):
+                        log(f"collaboration for {sender} in {room_name}: {body[:80]}")
+                        for speaker, text in collaboration_messages(
+                            audit, args.context, namespace, sender, args.data_dir
+                        ):
+                            sessions.post(room_name, speaker, text)
+                            time.sleep(0.4)
+                        continue
                     for agent in targets:
                         facts = (
                             audit["text"]

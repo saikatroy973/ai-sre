@@ -115,6 +115,26 @@ kube-investigator switch console incident --scenario ambiguous --json
 
 ---
 
+## 3b. Multi-agent handoff in one thread
+
+For a scripted team exchange, use the dedicated **`k8s-showcase`** channel
+(<http://localhost:8065/switch/channels/k8s-showcase>) and ask:
+
+> `@incident-commander investigate the backend outage and give me the final hypothesis`
+
+The responder then posts the whole handoff as the six agents:
+
+1. **commander** dispatches cluster-investigator, telemetry-analyst, change-analyst, memory-researcher and evidence-verifier;
+2. **cluster-investigator** reports the Kubernetes findings and root cause;
+3. **telemetry-analyst** reports live CPU/memory and recent error log lines;
+4. **change-analyst** reports rollout/ReplicaSet history;
+5. **memory-researcher** reports approved prior incidents (leads only);
+6. **evidence-verifier** re-runs the checks and confirms the findings;
+7. **commander** publishes the final hypothesis, confidence, evidence, recommended action and limitations.
+
+The exchange is read-only and each message is actor-attributed in the Switch room
+and mirrored to the channel.
+
 ## 4. Prove the guardrails (live, ~2 min)
 
 All of these are read-only and run in a second terminal while the room is open.

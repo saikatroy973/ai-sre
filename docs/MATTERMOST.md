@@ -75,6 +75,13 @@ names: a room message and the Mattermost post are the same event, mirrored by
   from Console → Connectors if you want the OpenAI-agent runtime mirrored into a
   channel too.
 
+## Multi-agent showcase channel
+
+`k8s-showcase` is a clean room for presentations:
+<http://localhost:8065/switch/channels/k8s-showcase>. Addressing
+`@incident-commander investigate …` there runs the full handoff (commander →
+specialists → verifier → final hypothesis) instead of a single reply.
+
 ## Try it
 
 1. Open <http://127.0.0.1:8065> and sign in as `admin` (password from `.data/switch/.env`).
