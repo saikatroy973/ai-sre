@@ -1,9 +1,7 @@
 name: Switch Trust CodeScan
 
+# On-demand only: run from the Actions tab or `gh workflow run "Switch Trust CodeScan"`.
 on:
-  pull_request:
-  schedule:
-    - cron: "0 6 * * *"
   workflow_dispatch:
 
 permissions:
