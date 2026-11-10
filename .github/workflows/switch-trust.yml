@@ -31,6 +31,7 @@ jobs:
             echo "::notice::Switch Trust secrets are not configured; CodeScan is skipped, not passed."
           fi
       - name: Check LLM provider before scanning
+        id: preflight
         if: steps.configure.outputs.enabled == 'true'
         env:
           SWITCH_TRUST_LLM_MODEL: ${{ vars.SWITCH_TRUST_LLM_MODEL || 'anthropic:claude-opus-4-8' }}
@@ -38,13 +39,18 @@ jobs:
       # Read-only inventory discovery. The action reports findings to Switch Trust.
       # This workflow never converts a skipped scan into a successful gate.
       - name: Run Switch Trust inventory scan
-        if: steps.configure.outputs.enabled == 'true'
+        if: steps.configure.outputs.enabled == 'true' && steps.preflight.outputs.skip != 'true'
         uses: sandbox-quantum/switch-trust-codescan-action@7e261a61f4d052c722f0a384c946f571f142dfd1
         with:
           switch_trust_instance: ${{ vars.SWITCH_TRUST_INSTANCE || 'https://app.switchagents.ai' }}
           switch_trust_token: ${{ secrets.SWITCH_TRUST_TOKEN }}
           llm_model: ${{ vars.SWITCH_TRUST_LLM_MODEL || 'anthropic:claude-opus-4-8' }}
           llm_api_key: ${{ secrets.SWITCH_TRUST_LLM_API_KEY }}
+      - name: Record that the LLM scan was skipped
+        if: steps.configure.outputs.enabled == 'true' && steps.preflight.outputs.skip == 'true'
+        run: |
+          echo "::warning::The LLM provider quota is exhausted; CodeScan was skipped, not passed."
+          echo "Fund the provider or change SWITCH_TRUST_LLM_MODEL/API key, then re-run."
       - name: Enforce Trust findings gate
         if: always() && steps.configure.outputs.enabled == 'true'
         env:

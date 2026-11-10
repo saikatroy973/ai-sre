@@ -2,9 +2,9 @@
 """Check the CodeScan LLM provider before spending CI time on a scan.
 
 The CodeScan action can complete its static inventory while its MCP LLM scanner
-silently does not run. This preflight turns a missing key, exhausted quota, or
-unavailable model into a failed job instead of a green run with incomplete
-inventory.
+silently does not run. This preflight turns a missing key or unavailable model
+into a failed job; an exhausted provider quota becomes a skipped scan (not a
+pass), because no model can run until the account is funded.
 """
 
 from __future__ import annotations
@@ -14,6 +14,17 @@ import os
 import sys
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+
+_QUOTA_CODES = {
+    "credit_balance_exhausted",
+    "insufficient_quota",
+    "billing_hard_limit_reached",
+    "quota_exceeded",
+}
+
+
+class ProviderQuotaExhausted(Exception):
+    """The provider is configured but cannot serve requests until it is funded."""
 
 
 def _post(url: str, headers: dict[str, str], body: dict) -> None:
@@ -36,6 +47,8 @@ def _post(url: str, headers: dict[str, str], body: dict) -> None:
                 detail = str(error.get("code") or error.get("type") or "")
         except (ValueError, OSError):
             pass
+        if exc.code == 429 or detail in _QUOTA_CODES:
+            raise ProviderQuotaExhausted(detail or f"HTTP {exc.code}") from None
         suffix = f" ({detail})" if detail else ""
         raise SystemExit(f"LLM provider returned HTTP {exc.code}{suffix}") from None
     except (URLError, TimeoutError) as exc:
@@ -57,6 +70,15 @@ def main() -> int:
     if not api_key:
         print("SWITCH_TRUST_LLM_API_KEY is required", file=sys.stderr)
         return 1
+    try:
+        _run_provider(provider, model, api_key)
+    except ProviderQuotaExhausted as exc:
+        return _skip_scan(str(exc))
+    print(f"LLM provider preflight passed: {provider}:{model}")
+    return 0
+
+
+def _run_provider(provider: str, model: str, api_key: str) -> None:
     if provider == "openai":
         _post(
             "https://api.openai.com/v1/chat/completions",
@@ -92,8 +114,16 @@ def main() -> int:
             "openai, anthropic, gemini, or google",
             file=sys.stderr,
         )
-        return 1
-    print(f"LLM provider preflight passed: {provider}:{model}")
+        raise SystemExit(1)
+
+
+def _skip_scan(reason: str) -> int:
+    message = f"LLM provider cannot serve this scan ({reason}); CodeScan is skipped, not passed."
+    print(f"::warning::{message}")
+    output = os.getenv("GITHUB_OUTPUT")
+    if output:
+        with open(output, "a", encoding="utf-8") as handle:
+            handle.write("skip=true\n")
     return 0
 
 
