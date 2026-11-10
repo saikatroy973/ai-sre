@@ -1,8 +1,9 @@
 name: Tests
 
+# Automatic runs are disabled; start the suite manually from the Actions tab
+# (or `gh workflow run Tests`).
 on:
-  push:
-  pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
